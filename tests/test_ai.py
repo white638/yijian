@@ -211,6 +211,10 @@ async def test_pairing_is_private_single_use_and_immediately_revocable(client, s
     assert connected["expires_in"] == 3600
     assert token not in json.dumps(suite.store.read())
     headers = {"Authorization": "Bearer " + token}
+    waiting = (await client.get("/api/ai/settings", headers=headers)).json()
+    assert waiting["assistant_connected"] is False
+    assert waiting["assistant_connection"]["status"] == "pending"
+    assert (await client.post("/api/ai/connection/verify", headers=headers)).status_code == 200
     assert (await client.get("/api/ai/settings", headers=headers)).json()["assistant_connected"]
     for method, url, payload in (
         ("post", "connection-code", None),

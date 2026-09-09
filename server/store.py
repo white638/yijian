@@ -34,6 +34,7 @@ def initial_state() -> dict:
         "trips": [],
         "ai": {},
         "pairings": [],
+        "device_pairings": [],
         "assistant_sessions": [],
         "browser_sessions": [],
     }

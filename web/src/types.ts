@@ -142,6 +142,20 @@ export interface AISettings {
   capabilities: { text: boolean; vision: boolean };
   configured: boolean;
   assistant_connected?: boolean;
+  assistant_connection?: {
+    status: "disconnected" | "pending" | "connected";
+    client_name?: string;
+    expires_at?: number;
+    verified_at?: number;
+    request_id?: string;
+  };
+}
+export interface AssistantDeviceRequest {
+  id: string;
+  user_code: string;
+  client_name: string;
+  expires_at: number;
+  status: "pending" | "approved";
 }
 export interface Preferences {
   location: string;

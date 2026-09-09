@@ -9,7 +9,7 @@
   "interface": {
     "displayName": "衣间 · Yijian",
     "shortDescription": "识别自己的衣物，保存真实可穿的搭配。",
-    "longDescription": "使用一次性连接码授权 Codex 读取衣橱图片、提交待确认标签，并将现有衣物组成搭配保存。",
+    "longDescription": "在衣间网页确认配对，验证后让 Codex 读取衣橱图片、提交待确认标签，并将现有衣物组成搭配保存。",
     "developerName": "Yijian contributors",
     "category": "Productivity",
     "capabilities": [],

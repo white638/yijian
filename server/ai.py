@@ -20,7 +20,8 @@ from PIL import Image
 from pydantic import BaseModel, ConfigDict, Field, SecretStr
 
 from .ai_network import ModelConnectionError, completion, endpoint_url
-from .auth import digest, require_access
+from .auth import check_origin, digest, require_access
+from .assistant_pairing import connection_status, create_assistant_session, router as pairing_router
 from .models import Category, RecommendationInput
 from .recommendations import eligible_items, validate_outfit
 
@@ -75,6 +76,7 @@ class PrivateRoute(APIRoute):
 
 
 router = APIRouter(prefix="/api/ai", route_class=PrivateRoute)
+router.include_router(pairing_router)
 
 
 def _browser(access: str) -> None:
@@ -160,14 +162,14 @@ def public_settings(store) -> dict:
     state = store.read()
     configuration = _configuration(state)
     supported = capabilities(store)
+    connection = connection_status(state)
     return {
         **{key: configuration[key] for key in EMPTY},
         "has_key": bool(configuration.get("sealed_key")),
         "configured": configuration["provider"] in HOSTS or any(supported.values()),
         "capabilities": supported,
-        "assistant_connected": any(
-            session.get("expires_at", 0) > time.time() for session in state.get("assistant_sessions", [])
-        ),
+        "assistant_connected": connection["status"] == "connected",
+        "assistant_connection": connection,
     }
 
 
@@ -236,6 +238,7 @@ async def save_configuration(data: SettingsInput, request: Request, access: str 
                 incoming["sealed_key"] = prior["sealed_key"]
         if prior["provider"] != incoming["provider"]:
             state["pairings"] = []
+            state["device_pairings"] = []
             state["assistant_sessions"] = []
         changed = _revision(prior) != _revision(incoming)
         state.setdefault("ai", {})["configuration"] = incoming
@@ -626,6 +629,7 @@ async def connection_code(request: Request, access: str = Depends(require_access
 
 @router.post("/connect")
 async def connect_assistant(data: ConnectInput, request: Request):
+    check_origin(request)
     store = request.app.state.store
     _charge(store, "connect", 20)
     wanted = digest(data.code.get_secret_value().strip())
@@ -646,9 +650,7 @@ async def connect_assistant(data: ConnectInput, request: Request):
         if valid is None:
             raise HTTPException(401, "连接码无效或已过期，请在衣间页面重新生成。")
         state["pairings"] = []
-        sessions = [session for session in state["assistant_sessions"] if session["expires_at"] > now][-9:]
-        sessions.append({"token_hash": digest(token), "expires_at": now + 3600, "scope": "assistant"})
-        state["assistant_sessions"] = sessions
+        create_assistant_session(state, token, _configuration(state)["provider"], now)
 
     store.update(redeem)
     return {"access_token": token, "expires_in": 3600}
@@ -656,8 +658,11 @@ async def connect_assistant(data: ConnectInput, request: Request):
 
 @router.post("/disconnect")
 async def disconnect_assistants(request: Request, access: str = Depends(require_access)):
+    _browser(access)
+
     def clear(state):
         state["pairings"] = []
+        state["device_pairings"] = []
         state["assistant_sessions"] = []
 
     request.app.state.store.update(clear)

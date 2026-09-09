@@ -43,6 +43,7 @@ def create_app(data_dir: Path | str | None = None) -> FastAPI:
     from . import ai
     from .images import ImagePipeline
     from .backup import router as backup_router
+    from .assistant_setup import router as assistant_setup_router
 
     @asynccontextmanager
     async def lifespan(application):
@@ -501,6 +502,7 @@ def create_app(data_dir: Path | str | None = None) -> FastAPI:
         return application.state.store.update(save)
 
     application.include_router(ai.router)
+    application.include_router(assistant_setup_router)
     application.include_router(backup_router)
     build_dir = Path(__file__).resolve().parents[1] / "web" / "dist"
 

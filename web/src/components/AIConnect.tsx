@@ -1,10 +1,11 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Check, Copy, ExternalLink, PlugZap } from "lucide-react";
 import { FeatureIcon } from "./FeatureIcon";
 import { api, send, failure } from "../api";
 import { useApp } from "../Store";
-import type { AISettings, Provider } from "../types";
+import type { AISettings, AssistantDeviceRequest, Provider } from "../types";
 import { Button, Field, ErrorText } from "./UI";
+import "../assistant-connect.css";
 const names: Record<Provider, string> = {
   none: "暂不连接",
   openai: "OpenAI",
@@ -21,9 +22,507 @@ const urls: Record<Provider, string> = {
   codex: "",
   "claude-code": "",
 };
+type AssistantProvider = "codex" | "claude-code";
+function connectionTime(value?: number) {
+  if (!value || !Number.isFinite(value)) return "未记录";
+  return new Intl.DateTimeFormat("zh-CN", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(new Date(value * 1000));
+}
+function verifiedConnection(settings: AISettings) {
+  const connection = settings.assistant_connection;
+  return Boolean(
+    settings.assistant_connected &&
+      connection?.status === "connected" &&
+      connection.verified_at &&
+      connection.expires_at &&
+      connection.expires_at * 1000 > Date.now(),
+  );
+}
+function AssistantConnection({
+  provider,
+  settings,
+  save,
+  busy,
+  setBusy,
+}: {
+  provider: AssistantProvider;
+  settings: AISettings;
+  save: () => Promise<AISettings>;
+  busy: string;
+  setBusy: (value: string) => void;
+}) {
+  const { refresh, notify } = useApp();
+  const [snapshot, setSnapshot] = useState(settings);
+  const [installed, setInstalled] = useState<boolean | null>(null);
+  const [requests, setRequests] = useState<AssistantDeviceRequest[]>([]);
+  const [watching, setWatching] = useState(
+    settings.provider !== provider || !verifiedConnection(settings),
+  );
+  const [pollVersion, setPollVersion] = useState(0);
+  const [verificationBaseline, setVerificationBaseline] = useState<
+    number | null
+  >(null);
+  const [targetRequest, setTargetRequest] = useState<string | null>(null);
+  const [error, setError] = useState("");
+  const [pollError, setPollError] = useState("");
+  const [copyFallback, setCopyFallback] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [code, setCode] = useState<{ code: string; until: number } | null>(
+    null,
+  );
+  const [seconds, setSeconds] = useState(0);
+  const [, setClock] = useState(0);
+  const refreshRef = useRef(refresh);
+  const busyRef = useRef(busy);
+  const snapshotRef = useRef(snapshot);
+  const installVersion = useRef(0);
+  refreshRef.current = refresh;
+  busyRef.current = busy;
+  snapshotRef.current = snapshot;
+  const saved = settings.provider === provider;
+  const verified =
+    snapshot.provider === provider &&
+    verifiedConnection(snapshot) &&
+    (targetRequest
+      ? snapshot.assistant_connection?.request_id === targetRequest
+      : verificationBaseline === null ||
+        snapshot.assistant_connection?.verified_at !== verificationBaseline);
+  const connection = snapshot.assistant_connection;
+  const expired =
+    connection?.expires_at && connection.expires_at * 1000 <= Date.now();
+  const requestText = `使用衣间技能连接 ${location.origin}，发起配对，验证连接后读取衣物数量。`;
+
+  useEffect(() => setSnapshot(settings), [settings]);
+  useEffect(() => {
+    if (!saved) return;
+    const controller = new AbortController();
+    const version = ++installVersion.current;
+    api<{ installed: boolean }>(
+      `/ai/assistant/installation?provider=${provider}`,
+      { signal: controller.signal },
+    )
+      .then((result) => {
+        if (!controller.signal.aborted && version === installVersion.current)
+          setInstalled(result.installed);
+      })
+      .catch(() => {});
+    return () => controller.abort();
+  }, [saved, provider]);
+  useEffect(() => {
+    if (!code) return;
+    const update = () =>
+      setSeconds(Math.max(0, Math.ceil((code.until - Date.now()) / 1000)));
+    update();
+    const timer = setInterval(update, 1000);
+    return () => clearInterval(timer);
+  }, [code]);
+  useEffect(() => {
+    if (!connection?.expires_at) return;
+    const remaining = connection.expires_at * 1000 - Date.now();
+    if (remaining <= 0 || !Number.isFinite(remaining)) return;
+    const timer = setTimeout(
+      () => setClock((value) => value + 1),
+      remaining + 50,
+    );
+    return () => clearTimeout(timer);
+  }, [connection?.expires_at]);
+  useEffect(() => {
+    if (!saved || !watching) return;
+    const controller = new AbortController();
+    let timer: ReturnType<typeof setTimeout>;
+    let cycles = 0;
+    let awaitingVerification =
+      snapshotRef.current.assistant_connection?.status === "pending";
+    async function poll() {
+      let complete = false;
+      try {
+        if (document.hidden || busyRef.current) return;
+        const result = await api<{ requests: AssistantDeviceRequest[] }>(
+          "/ai/device/requests",
+          { signal: controller.signal },
+        );
+        if (controller.signal.aborted) return;
+        if (!Array.isArray(result.requests))
+          throw new Error("暂时无法读取连接请求，请稍后重试。");
+        const active = result.requests.filter(
+          (request) => request.expires_at * 1000 > Date.now(),
+        );
+        setRequests(active);
+        const approved = active.find(
+          (request) => request.status === "approved",
+        );
+        const requestedId = targetRequest || approved?.id;
+        if (approved && !targetRequest) setTargetRequest(approved.id);
+        awaitingVerification ||= Boolean(approved);
+        if (awaitingVerification || cycles++ % 5 === 0) {
+          const next = await api<AISettings>("/ai/settings", {
+            signal: controller.signal,
+          });
+          if (controller.signal.aborted) return;
+          setSnapshot(next);
+          awaitingVerification ||=
+            next.assistant_connection?.status === "pending";
+          const freshVerification = requestedId
+            ? next.assistant_connection?.request_id === requestedId
+            : verificationBaseline === null ||
+              next.assistant_connection?.verified_at !== verificationBaseline;
+          if (
+            next.provider === provider &&
+            verifiedConnection(next) &&
+            freshVerification &&
+            !active.some((request) => request.status === "pending")
+          ) {
+            complete = true;
+            setWatching(false);
+            setRequests([]);
+            await refreshRef.current();
+          }
+        }
+        setPollError("");
+      } catch (e) {
+        if (!controller.signal.aborted) setPollError(failure(e));
+      } finally {
+        if (!controller.signal.aborted && !complete)
+          timer = setTimeout(poll, 2000);
+      }
+    }
+    void poll();
+    return () => {
+      controller.abort();
+      clearTimeout(timer);
+    };
+  }, [
+    saved,
+    provider,
+    watching,
+    pollVersion,
+    targetRequest,
+    verificationBaseline,
+  ]);
+
+  async function ensureSaved() {
+    if (saved) return settings;
+    const next = await save();
+    setSnapshot(next);
+    return next;
+  }
+  function watch() {
+    setWatching(true);
+    setPollVersion((value) => value + 1);
+  }
+  async function run(
+    action: "install" | "copy" | "code" | "disconnect" | "check",
+  ) {
+    if (busy) return;
+    setBusy(action);
+    setError("");
+    try {
+      if (action === "disconnect") {
+        await api("/ai/disconnect", { method: "POST" });
+        setWatching(false);
+        setRequests([]);
+        setCode(null);
+        setTargetRequest(null);
+        setVerificationBaseline(null);
+        setSnapshot({
+          ...settings,
+          assistant_connected: false,
+          assistant_connection: { status: "disconnected" },
+        });
+        await refresh();
+        notify("助手连接已断开。");
+        return;
+      }
+      await ensureSaved();
+      if (action === "install") {
+        ++installVersion.current;
+        const result = await send<{ installed: boolean }>(
+          "/ai/assistant/install",
+          { provider },
+        );
+        if (!result.installed) throw new Error("技能尚未安装完成，请重试。");
+        setInstalled(true);
+        notify(`衣间技能已安装到 ${names[provider]}。`);
+      } else if (action === "copy") {
+        setTargetRequest(null);
+        setVerificationBaseline(
+          snapshot.assistant_connection?.verified_at || 0,
+        );
+        try {
+          await navigator.clipboard.writeText(requestText);
+          setCopied(true);
+          setCopyFallback(false);
+          notify("连接请求已复制，请发送给助手。", "info");
+        } catch {
+          setCopyFallback(true);
+          setCopied(false);
+        }
+        watch();
+      } else if (action === "code") {
+        const result = await api<{ code: string; expires_in: number }>(
+          "/ai/connection-code",
+          { method: "POST" },
+        );
+        setCode({
+          code: result.code,
+          until: Date.now() + result.expires_in * 1000,
+        });
+        setTargetRequest(null);
+        setVerificationBaseline(
+          snapshot.assistant_connection?.verified_at || 0,
+        );
+        watch();
+      } else watch();
+    } catch (e) {
+      setError(failure(e));
+    } finally {
+      setBusy("");
+    }
+  }
+  async function decide(request: AssistantDeviceRequest, approve: boolean) {
+    if (busy) return;
+    setBusy(request.id);
+    setError("");
+    try {
+      await api(
+        `/ai/device/${encodeURIComponent(request.id)}${approve ? "/approve" : ""}`,
+        { method: approve ? "POST" : "DELETE" },
+      );
+      setRequests((current) =>
+        approve
+          ? current.map((item) =>
+              item.id === request.id ? { ...item, status: "approved" } : item,
+            )
+          : current.filter((item) => item.id !== request.id),
+      );
+      if (approve) {
+        setTargetRequest(request.id);
+        setVerificationBaseline(
+          snapshot.assistant_connection?.verified_at || 0,
+        );
+        setSnapshot((current) => ({
+          ...current,
+          assistant_connected: false,
+          assistant_connection: { status: "pending" },
+        }));
+      }
+      watch();
+    } catch (e) {
+      setError(failure(e));
+      watch();
+    } finally {
+      setBusy("");
+    }
+  }
+  return (
+    <div className="soft-panel assistant-connection">
+      <div>
+        <h3>在 {names[provider]} 中使用衣柜</h3>
+        <p className="muted small">
+          识别和搭配使用助手本身的模型能力和额度。网页可以继续管理衣物、去背景和生成规则搭配。
+        </p>
+      </div>
+      {verified && (
+        <div className="assistant-verified" role="status">
+          <div className="assistant-verified-title">
+            <Check size={17} />
+            已验证连接
+          </div>
+          <dl>
+            <div>
+              <dt>连接助手</dt>
+              <dd>{connection?.client_name || names[provider]}</dd>
+            </div>
+            <div>
+              <dt>授权到期</dt>
+              <dd>{connectionTime(connection?.expires_at)}</dd>
+            </div>
+            <div>
+              <dt>最近验证</dt>
+              <dd>{connectionTime(connection?.verified_at)}</dd>
+            </div>
+          </dl>
+          <small className="muted">此处显示最近一次验证结果。</small>
+        </div>
+      )}
+      <ol className="assistant-steps">
+        <li className="assistant-step">
+          <div className="assistant-step-content">
+            <h4>安装衣间技能</h4>
+            <Button
+              kind="secondary"
+              busy={busy === "install"}
+              disabled={!!busy}
+              onClick={() => run("install")}
+            >
+              {installed
+                ? `重新安装到 ${names[provider]}`
+                : `安装到 ${names[provider]}`}
+            </Button>
+            {installed && (
+              <p className="small muted" role="status">
+                衣间技能已安装。
+              </p>
+            )}
+            <p className="small muted">
+              若助手还没发现技能，重新打开会话后再试。
+            </p>
+          </div>
+        </li>
+        <li className="assistant-step">
+          <div className="assistant-step-content">
+            <h4>让助手发起连接</h4>
+            <Button
+              kind="secondary"
+              busy={busy === "copy"}
+              disabled={!!busy}
+              onClick={() => run("copy")}
+            >
+              <Copy size={16} />
+              复制给 {names[provider]} 的连接请求
+            </Button>
+            {copied && (
+              <p className="small muted" role="status">
+                已复制，请粘贴到 {names[provider]} 并发送。
+              </p>
+            )}
+            {copyFallback && (
+              <Field
+                label="请手动复制连接请求"
+                hint="复制未完成，请选中下面的文字复制。"
+              >
+                <textarea
+                  className="assistant-copy-text"
+                  readOnly
+                  value={requestText}
+                />
+              </Field>
+            )}
+            <p className="small muted">
+              助手发起配对后，回到这里核对短码并确认。
+            </p>
+          </div>
+        </li>
+        <li className="assistant-step">
+          <div className="assistant-step-content">
+            <h4>确认并验证连接</h4>
+            {!verified && requests.length === 0 && (
+              <p className="small muted" role="status">
+                {targetRequest || connection?.status === "pending"
+                  ? "助手尚未完成验证，请让助手继续连接。"
+                  : expired
+                    ? "授权已到期，请复制新的连接请求。"
+                    : watching && saved
+                      ? "等待助手发起连接…"
+                      : "发送连接请求后，这里会显示待确认的助手。"}
+              </p>
+            )}
+            {requests.map((request) => (
+              <div className="assistant-request" key={request.id}>
+                <p className="small">{request.client_name} 请求连接</p>
+                <strong className="assistant-user-code">
+                  {request.user_code}
+                </strong>
+                <small className="muted">
+                  请核对助手显示的短码。到期时间：
+                  {connectionTime(request.expires_at)}
+                </small>
+                {request.status === "approved" ? (
+                  <p role="status">等待助手保存凭据并验证…</p>
+                ) : (
+                  <Button
+                    disabled={!!busy}
+                    busy={busy === request.id}
+                    onClick={() => decide(request, true)}
+                    aria-label={`确认连接 ${names[provider]}，短码 ${request.user_code}`}
+                  >
+                    确认连接 {names[provider]}
+                  </Button>
+                )}
+                <Button
+                  kind="ghost"
+                  disabled={!!busy}
+                  onClick={() => decide(request, false)}
+                >
+                  {request.status === "approved"
+                    ? "撤销此次确认"
+                    : "拒绝此次连接"}
+                </Button>
+              </div>
+            ))}
+            <p className="small muted">
+              确认后，助手可在 1 小时内读取和更新当前衣柜；点击断开可立即撤销。
+            </p>
+            <ErrorText error={pollError} />
+            {(!watching || pollError) && (
+              <Button
+                kind="ghost"
+                disabled={!!busy}
+                onClick={() => run("check")}
+              >
+                检查连接请求
+              </Button>
+            )}
+          </div>
+        </li>
+      </ol>
+      {(snapshot.assistant_connected ||
+        targetRequest ||
+        connection?.status === "pending" ||
+        requests.length > 0) && (
+        <Button
+          kind="ghost"
+          disabled={!!busy}
+          onClick={() => run("disconnect")}
+        >
+          断开所有助手连接
+        </Button>
+      )}
+      <details className="assistant-backup">
+        <summary>备用安装与连接方式</summary>
+        <div className="stack tight">
+          <a
+            className="link"
+            href="https://github.com/white638/yijian/blob/main/docs/assistant-mode.md"
+            target="_blank"
+            rel="noreferrer"
+          >
+            查看技能安装说明 <ExternalLink size={15} />
+          </a>
+          <div className="command">
+            {provider === "codex" ? "$yijian" : "/yijian"}
+          </div>
+          <Button
+            kind="secondary"
+            busy={busy === "code"}
+            disabled={!!busy}
+            onClick={() => run("code")}
+          >
+            生成备用连接码
+          </Button>
+          {code &&
+            (seconds > 0 ? (
+              <Field
+                label="一次性连接码"
+                hint={`${seconds} 秒后过期；仅交给你要授权的助手。`}
+              >
+                <input readOnly value={code.code} />
+              </Field>
+            ) : (
+              <p className="small muted">连接码已过期，可重新生成。</p>
+            ))}
+        </div>
+      </details>
+      <ErrorText error={error} />
+    </div>
+  );
+}
 export function AIConnect({ onFinish }: { onFinish?: () => void }) {
   const { state, refresh, notify } = useApp();
-  const current = state.ai;
+  const [current, setCurrent] = useState(state.ai);
+  useEffect(() => setCurrent(state.ai), [state.ai]);
   const [provider, setProvider] = useState<Provider>(
     current.provider === "none" ? "codex" : current.provider,
   );
@@ -39,25 +538,8 @@ export function AIConnect({ onFinish }: { onFinish?: () => void }) {
     vision: boolean;
     message: string;
   } | null>(null);
-  const [code, setCode] = useState<{ code: string; until: number } | null>(
-    null,
-  );
-  const [seconds, setSeconds] = useState(0);
   const host = provider === "codex" || provider === "claude-code";
   const same = current.provider === provider && current.base_url === base;
-  useEffect(() => {
-    if (!code) return;
-    const update = () =>
-      setSeconds(Math.max(0, Math.ceil((code.until - Date.now()) / 1000)));
-    update();
-    const t = setInterval(update, 1000);
-    return () => clearInterval(t);
-  }, [code]);
-  useEffect(() => {
-    if (!host || !code) return;
-    const t = setInterval(() => refresh().catch(() => {}), 4000);
-    return () => clearInterval(t);
-  }, [host, code]);
   function choose(p: Provider) {
     setProvider(p);
     setBase(urls[p]);
@@ -67,9 +549,9 @@ export function AIConnect({ onFinish }: { onFinish?: () => void }) {
     setText("");
     setError("");
     setResult(null);
-    setCode(null);
   }
   async function save() {
+    if (host && current.provider === provider) return current;
     const val = await send<AISettings>(
       "/ai/settings",
       {
@@ -84,34 +566,22 @@ export function AIConnect({ onFinish }: { onFinish?: () => void }) {
     );
     setKey("");
     setClearKey(false);
+    setCurrent(val);
     await refresh();
     return val;
   }
-  async function run(action: "save" | "test" | "code" | "disconnect") {
+  async function run(action: "save" | "test") {
     if (busy) return;
     setBusy(action);
     setError("");
     setResult(null);
     try {
-      if (action === "disconnect") {
-        await api("/ai/disconnect", { method: "POST" });
-        setCode(null);
-        await refresh();
-        notify("助手连接已断开。");
-      } else {
-        await save();
-        if (action === "test")
-          setResult(await api("/ai/test", { method: "POST" }));
-        else if (action === "code") {
-          const c = await api<{ code: string; expires_in: number }>(
-            "/ai/connection-code",
-            { method: "POST" },
-          );
-          setCode({ code: c.code, until: Date.now() + c.expires_in * 1000 });
-        } else {
-          notify("AI 偏好已保存。");
-          onFinish?.();
-        }
+      await save();
+      if (action === "test")
+        setResult(await api("/ai/test", { method: "POST" }));
+      else {
+        notify("AI 偏好已保存。");
+        onFinish?.();
       }
     } catch (e) {
       setError(failure(e));
@@ -159,76 +629,14 @@ export function AIConnect({ onFinish }: { onFinish?: () => void }) {
         ))}
       </div>
       {host ? (
-        <div className="soft-panel stack">
-          <h3>在 {names[provider]} 中使用衣柜</h3>
-          {current.provider === provider && current.assistant_connected && (
-            <p className="badge success" role="status">
-              <Check size={15} />
-              助手已连接
-            </p>
-          )}
-          <p>
-            衣物识别与搭配使用宿主本身的模型能力和额度，在助手中发起。网页仍可管理衣物、去背景和生成规则搭配。
-          </p>
-          <a
-            className="link"
-            href="https://github.com/white638/yijian/blob/main/docs/assistant-mode.md"
-            target="_blank"
-            rel="noreferrer"
-          >
-            查看技能安装说明 <ExternalLink size={15} />
-          </a>
-          <div className="command">
-            {provider === "codex" ? "$yijian" : "/yijian:yijian"}
-          </div>
-          <p className="muted small">
-            把本衣柜网址和连接码交给你要授权的助手。连接后，它可在 1
-            小时内读取和更新衣柜；点击断开可立即撤销。
-          </p>
-          <Button
-            kind="secondary"
-            busy={busy === "code"}
-            disabled={!!busy}
-            onClick={() => run("code")}
-          >
-            保存并生成连接码
-          </Button>
-          {code &&
-            (seconds > 0 ? (
-              <div className="stack tight">
-                <label className="field">
-                  <span>一次性连接码</span>
-                  <input value={code.code} readOnly />
-                </label>
-                <div className="row between">
-                  <small role="timer">{seconds} 秒后过期</small>
-                  <Button
-                    kind="ghost"
-                    onClick={async () => {
-                      try {
-                        await navigator.clipboard.writeText(code.code);
-                        notify("连接码已复制。");
-                      } catch {
-                        notify("请选中连接码手动复制。", "info");
-                      }
-                    }}
-                  >
-                    <Copy size={16} />
-                    复制
-                  </Button>
-                </div>
-              </div>
-            ) : (
-              <p className="muted">连接码已过期，可重新生成。</p>
-            ))}
-          <Button
-            kind="ghost"
-            disabled={!!busy}
-            onClick={() => run("disconnect")}
-          >
-            断开所有助手连接
-          </Button>
-        </div>
+        <AssistantConnection
+          key={provider}
+          provider={provider as AssistantProvider}
+          settings={current}
+          save={save}
+          busy={busy}
+          setBusy={setBusy}
+        />
       ) : provider !== "none" ? (
         <div className="stack">
           <Field

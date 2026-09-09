@@ -3,6 +3,7 @@
 import argparse
 import base64
 import ctypes
+from contextlib import contextmanager
 import getpass
 import hashlib
 import ipaddress
@@ -10,6 +11,7 @@ import json
 import math
 import os
 import re
+import secrets
 import sys
 import time
 from pathlib import Path
@@ -26,24 +28,17 @@ CATEGORIES = {"top", "bottom", "dress", "outerwear", "shoes", "bag", "accessory"
 
 
 class BridgeError(Exception):
-    pass
+    def __init__(self, message, status=None):
+        super().__init__(message)
+        self.status = status
 
 
 def normalize_server(value):
     parts = urlsplit(value)
-    if (
-        parts.username
-        or parts.password
-        or parts.query
-        or parts.fragment
-        or not parts.hostname
-    ):
+    if parts.username or parts.password or parts.query or parts.fragment or not parts.hostname:
         raise BridgeError("服务地址不能包含凭据、查询参数或片段。")
     try:
-        loopback = (
-            parts.hostname.lower() == "localhost"
-            or ipaddress.ip_address(parts.hostname).is_loopback
-        )
+        loopback = parts.hostname.lower() == "localhost" or ipaddress.ip_address(parts.hostname).is_loopback
     except ValueError:
         loopback = parts.hostname.lower() == "localhost"
     if parts.scheme != "https" and not (parts.scheme == "http" and loopback):
@@ -75,9 +70,7 @@ def request(server, path, *, token=None, method="GET", payload=None, binary=Fals
         headers["Content-Type"] = "application/json"
     opener = build_opener(ProxyHandler({}), NoRedirect())
     try:
-        with opener.open(
-            Request(url, data=body, headers=headers, method=method), timeout=45
-        ) as response:
+        with opener.open(Request(url, data=body, headers=headers, method=method), timeout=45) as response:
             content = response.read(MAX_RESPONSE + 1)
             if len(content) > MAX_RESPONSE:
                 raise BridgeError("服务响应超过大小限制。")
@@ -93,14 +86,12 @@ def request(server, path, *, token=None, method="GET", payload=None, binary=Fals
     except HTTPError as error:
         error.close()
         if error.code in (301, 302, 303, 307, 308):
-            raise BridgeError(
-                "服务返回重定向，已停止请求。请使用最终服务地址重新连接。"
-            ) from None
+            raise BridgeError("服务返回重定向，已停止请求。请使用最终服务地址重新连接。") from None
         if error.code in (401, 403):
-            raise BridgeError(
-                "连接已过期或没有权限，请在衣间中生成新的连接码。"
-            ) from None
-        raise BridgeError(f"衣橱请求失败（HTTP {error.code}）。") from None
+            raise BridgeError("连接无效、已过期或没有权限，请重新发起配对。", error.code) from None
+        if error.code == 409:
+            raise BridgeError("衣间当前状态不支持此操作，请先在设置中保存对应的助手方式。", 409) from None
+        raise BridgeError(f"衣橱请求失败（HTTP {error.code}）。", error.code) from None
     except (URLError, TimeoutError, json.JSONDecodeError):
         raise BridgeError("无法读取衣橱服务响应。请检查地址及运行状态。") from None
 
@@ -133,7 +124,9 @@ def windows_protect(data, decrypt=False):
             ctypes.byref(source), None, None, None, None, 1, ctypes.byref(result)
         )
     if not ok:
-        raise BridgeError("无法使用当前系统账户保护连接凭据。")
+        raise BridgeError(
+            "无法在当前系统账户中读取或保护授权。请使用与连接时相同的 Windows 用户执行衣间工具；Codex 的沙箱与宿主用户不能混用。"
+        )
     try:
         return ctypes.string_at(result.data, result.size)
     finally:
@@ -156,11 +149,7 @@ def store_credentials(cache, server, response):
     cache.mkdir(parents=True, exist_ok=True, mode=0o700)
     (cache / ".gitignore").write_text("*\n", encoding="utf-8")
     protected = os.name == "nt"
-    saved_token = (
-        base64.b64encode(windows_protect(token.encode())).decode()
-        if protected
-        else token
-    )
+    saved_token = base64.b64encode(windows_protect(token.encode())).decode() if protected else token
     content = {
         "server": server,
         "token": saved_token,
@@ -170,14 +159,16 @@ def store_credentials(cache, server, response):
     }
     path = credential_path(cache, server)
     temporary = path.with_name(f".{uuid4().hex}.tmp")
+    serialized = json.dumps(content).encode("utf-8")
     descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     try:
-        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
-            json.dump(content, handle)
+        with os.fdopen(descriptor, "wb") as handle:
+            handle.write(serialized)
         os.chmod(temporary, 0o600)
         os.replace(temporary, path)
     finally:
         temporary.unlink(missing_ok=True)
+    return serialized
 
 
 def load_token(cache, server):
@@ -185,7 +176,7 @@ def load_token(cache, server):
     try:
         saved = json.loads(path.read_text(encoding="utf-8"))
         if saved["server"] != server or saved["expires_at"] <= time.time():
-            raise BridgeError("连接已过期，请在衣间中生成新的连接码。")
+            raise BridgeError("连接已过期，请重新运行 connect，并在衣间中确认配对。")
         token = saved["token"]
         if saved.get("protected"):
             if os.name != "nt":
@@ -195,9 +186,166 @@ def load_token(cache, server):
             raise ValueError("empty token")
         return token
     except (OSError, ValueError, KeyError):
+        raise BridgeError("尚未连接衣橱。请运行 connect，再在衣间设置中确认配对。") from None
+
+
+def preflight_credentials(cache):
+    probe = cache / f".write-check-{uuid4().hex}"
+    try:
+        cache.mkdir(parents=True, exist_ok=True, mode=0o700)
+        sample = secrets.token_bytes(32)
+        protected = windows_protect(sample) if os.name == "nt" else sample
+        descriptor = os.open(probe, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(descriptor, "wb") as handle:
+            handle.write(protected)
+        restored = probe.read_bytes()
+        if os.name == "nt":
+            restored = windows_protect(restored, decrypt=True)
+        if not secrets.compare_digest(sample, restored):
+            raise BridgeError("授权保存自检失败，请检查当前系统账户。")
+    except OSError:
         raise BridgeError(
-            "尚未连接衣橱。请运行 connect，并输入衣间提供的连接码。"
+            "当前运行环境无法保存衣间授权。请使用同一 Windows 用户的宿主执行环境运行助手，或选择仅自己可访问的缓存目录。"
         ) from None
+    finally:
+        probe.unlink(missing_ok=True)
+
+
+def verify_connection(server, token):
+    state = request(server, "/state", token=token)
+    if not isinstance(state, dict) or not isinstance(state.get("items"), list):
+        raise BridgeError("衣柜读取验证未通过，连接尚未完成。")
+    verified = request(server, "/ai/connection/verify", token=token, method="POST", payload={})
+    if not isinstance(verified, dict) or verified.get("connected") is not True:
+        raise BridgeError("助手授权验证未通过，连接尚未完成。")
+    return {**verified, "wardrobe_items": len(state["items"])}
+
+
+@contextmanager
+def credential_lock(cache, server):
+    cache.mkdir(parents=True, exist_ok=True, mode=0o700)
+    lock_path = credential_path(cache, server).with_suffix(".lock")
+    descriptor = os.open(lock_path, os.O_RDWR | os.O_CREAT, 0o600)
+    with os.fdopen(descriptor, "r+b") as handle:
+        try:
+            if os.name == "nt":
+                import msvcrt
+
+                msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+            else:
+                import fcntl
+
+                fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            raise BridgeError("另一条连接正在保存授权，请稍后重试。") from None
+        try:
+            yield
+        finally:
+            if os.name == "nt":
+                msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+
+def complete_connection(cache, server, response):
+    if not isinstance(response, dict):
+        raise BridgeError("连接响应格式无效。")
+    acquired = False
+    try:
+        with credential_lock(cache, server):
+            acquired = True
+            return _complete_connection(cache, server, response)
+    except (BridgeError, OSError):
+        token = response.get("access_token")
+        if not acquired and isinstance(token, str) and token:
+            try:
+                request(server, "/ai/connection", token=token, method="DELETE")
+            except BridgeError:
+                pass
+        raise
+
+
+def _complete_connection(cache, server, response):
+    token = response.get("access_token")
+    path = credential_path(cache, server)
+    previous = None
+    previous_token = None
+    saved = None
+    try:
+        previous = path.read_bytes() if path.exists() else None
+        if previous is not None:
+            try:
+                previous_token = load_token(cache, server)
+            except BridgeError:
+                pass
+        saved = store_credentials(cache, server, response)
+        stored_token = load_token(cache, server)
+        if not isinstance(token, str) or not secrets.compare_digest(token, stored_token):
+            raise BridgeError("另一条连接刚刚更新了授权，请重新检查连接状态。")
+        result = verify_connection(server, stored_token)
+    except (BridgeError, OSError):
+        if isinstance(token, str) and token:
+            try:
+                request(server, "/ai/connection", token=token, method="DELETE")
+            except BridgeError:
+                pass
+        if saved is not None and path.exists() and path.read_bytes() == saved:
+            if previous is None:
+                path.unlink()
+            else:
+                temporary = path.with_name(f".restore-{uuid4().hex}")
+                descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+                try:
+                    with os.fdopen(descriptor, "wb") as handle:
+                        handle.write(previous)
+                    os.replace(temporary, path)
+                finally:
+                    temporary.unlink(missing_ok=True)
+        raise
+    if previous_token and previous_token != token:
+        try:
+            request(server, "/ai/connection", token=previous_token, method="DELETE")
+        except BridgeError as error:
+            if error.status not in (401, 403):
+                print("新连接已验证；旧授权未能撤销，将在原有效期结束时失效。", file=sys.stderr)
+    return result
+
+
+def device_connect(cache, server, client):
+    preflight_credentials(cache)
+    invitation = request(server, "/ai/device/start", method="POST", payload={"client": client})
+    if not isinstance(invitation, dict):
+        raise BridgeError("配对响应格式无效，请更新衣间后重试。")
+    device_code, user_code = invitation.get("device_code"), invitation.get("user_code")
+    if (
+        not isinstance(device_code, str)
+        or not re.fullmatch(r"[A-Za-z0-9_-]{43}", device_code)
+        or not isinstance(user_code, str)
+        or not re.fullmatch(r"[A-Z0-9]{4}-[A-Z0-9]{4}", user_code)
+    ):
+        raise BridgeError("配对响应格式无效，请更新衣间后重试。")
+    name = "Codex" if client == "codex" else "Claude Code"
+    print(f"请在衣间的 AI 设置中确认 {name} 连接，核对短码：{user_code}", flush=True)
+    print(f"衣间页面：{server.removesuffix('/api')}/#settings", flush=True)
+    lifetime = invitation.get("expires_in")
+    if not isinstance(lifetime, (int, float)) or isinstance(lifetime, bool) or not 0 < lifetime <= 300:
+        raise BridgeError("配对有效期无效，请重新发起连接。")
+    deadline = time.monotonic() + lifetime
+    while time.monotonic() < deadline:
+        time.sleep(2)
+        try:
+            response = request(server, "/ai/device/poll", method="POST", payload={"device_code": device_code})
+        except BridgeError as error:
+            if error.status == 429:
+                continue
+            raise
+        if not isinstance(response, dict):
+            raise BridgeError("配对响应格式无效，请重新发起连接。")
+        if response.get("status") == "approved":
+            return complete_connection(cache, server, response)
+        if response.get("status") != "pending":
+            raise BridgeError("配对没有完成，请回到衣间重新发起连接。")
+    raise BridgeError("等待确认已超时，没有建立连接；请重新发起配对。")
 
 
 def item_id(value):
@@ -209,8 +357,7 @@ def item_id(value):
 
 def list_items(server, token, pending=False):
     items = request(server, "/state", token=token)["items"]
-    return [item for item in items if item["status"] != "archived"
-            and (not pending or not item["confirmed"])]
+    return [item for item in items if item["status"] != "archived" and (not pending or not item["confirmed"])]
 
 
 def get_item(server, token, identifier):
@@ -262,9 +409,7 @@ def tag_item(server, token, identifier, payload, confirmed=False):
     if current["ai_status"] == "processing":
         raise BridgeError("衣物仍在处理中，请稍后再写入标签。")
     payload = {**payload, "confirmed": confirmed}
-    return request(
-        server, "/items/" + identifier, token=token, method="PATCH", payload=payload
-    )
+    return request(server, "/items/" + identifier, token=token, method="PATCH", payload=payload)
 
 
 def save_outfit(server, token, payload):
@@ -272,15 +417,15 @@ def save_outfit(server, token, payload):
     if not isinstance(identifiers, list) or not 1 <= len(identifiers) <= 20:
         raise BridgeError("搭配必须包含 1 至 20 件衣橱中的衣物。")
     ids = list(dict.fromkeys(item_id(value) for value in identifiers))
-    available = {item["id"] for item in list_items(server, token)
-                 if item["status"] == "available" and item["confirmed"]
-                 and item["ai_status"] != "processing"}
+    available = {
+        item["id"]
+        for item in list_items(server, token)
+        if item["status"] == "available" and item["confirmed"] and item["ai_status"] != "processing"
+    }
     if any(identifier not in available for identifier in ids):
         raise BridgeError("搭配中有不存在、待确认、待洗或已归档的衣物，请重新选择。")
     payload = {**payload, "item_ids": ids, "source": "assistant"}
-    return request(
-        server, "/outfits", token=token, method="POST", payload=payload
-    )
+    return request(server, "/outfits", token=token, method="POST", payload=payload)
 
 
 def main(argv=None):
@@ -291,7 +436,11 @@ def main(argv=None):
     parser.add_argument("--server", default=DEFAULT_SERVER)
     parser.add_argument("--cache-dir", type=Path, default=default_cache())
     commands = parser.add_subparsers(dest="command", required=True)
-    commands.add_parser("connect")
+    connecting = commands.add_parser("connect")
+    connecting.add_argument("--client", choices=("codex", "claude-code"), default="codex")
+    connecting.add_argument(
+        "--code-stdin", action="store_true", help="备用方式：从隐藏输入或标准输入读取一次性连接码"
+    )
     commands.add_parser("disconnect")
     commands.add_parser("status")
     listing = commands.add_parser("list")
@@ -309,27 +458,26 @@ def main(argv=None):
     try:
         server = normalize_server(args.server)
         if args.command == "disconnect":
-            token = load_token(args.cache_dir, server)
-            request(server, "/ai/disconnect", token=token, method="POST", payload={})
-            credential_path(args.cache_dir, server).unlink(missing_ok=True)
+            with credential_lock(args.cache_dir, server):
+                token = load_token(args.cache_dir, server)
+                request(server, "/ai/connection", token=token, method="DELETE")
+                credential_path(args.cache_dir, server).unlink(missing_ok=True)
             output = {"connected": False}
         elif args.command == "connect":
-            code = (
-                getpass.getpass("衣间连接码：")
-                if sys.stdin.isatty()
-                else sys.stdin.readline().strip()
-            )
-            if not code or len(code) > 512:
-                raise BridgeError("连接码无效。")
-            response = request(
-                server, "/ai/connect", method="POST", payload={"code": code}
-            )
-            store_credentials(args.cache_dir, server, response)
-            output = {"connected": True, "expires_in": response["expires_in"]}
+            if args.code_stdin:
+                preflight_credentials(args.cache_dir)
+                code = getpass.getpass("衣间连接码：") if sys.stdin.isatty() else sys.stdin.readline().strip()
+                if not code or len(code) > 512:
+                    raise BridgeError("连接码无效。")
+                response = request(server, "/ai/connect", method="POST", payload={"code": code})
+                output = complete_connection(args.cache_dir, server, response)
+            else:
+                output = device_connect(args.cache_dir, server, args.client)
         else:
             token = load_token(args.cache_dir, server)
             if args.command == "status":
-                output = request(server, "/ai/settings", token=token)
+                verified = verify_connection(server, token)
+                output = {**request(server, "/ai/settings", token=token), **verified}
             elif args.command == "list":
                 items = list_items(server, token, args.pending)
                 output = {"items": items, "total": len(items)}
@@ -340,9 +488,7 @@ def main(argv=None):
                     server, token, args.item_id, read_payload(args.file, TAG_FIELDS), args.confirm
                 )
             else:
-                output = save_outfit(
-                    server, token, read_payload(args.file, OUTFIT_FIELDS)
-                )
+                output = save_outfit(server, token, read_payload(args.file, OUTFIT_FIELDS))
         print(json.dumps(output, ensure_ascii=False, indent=2))
         return 0
     except (BridgeError, OSError, ValueError) as error:

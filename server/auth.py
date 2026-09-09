@@ -68,10 +68,33 @@ def require_access(request: Request) -> str:
     sessions = state.get("assistant_sessions" if bearer else "browser_sessions", [])
     wanted = digest(token)
     for session in sessions:
+        if bearer and session.get("provider") is not None:
+            provider = state.get("ai", {}).get("configuration", {}).get("provider")
+            if session["provider"] != provider:
+                continue
         if session.get("expires_at", 0) > time.time() and hmac.compare_digest(
             session.get("token_hash", ""), wanted
         ):
             return "assistant" if bearer else "browser"
+    raise HTTPException(401, "连接已过期，请重新连接。")
+
+
+def current_assistant_session(state: dict, request: Request) -> dict:
+    authorization = request.headers.get("authorization", "")
+    if not authorization.startswith("Bearer "):
+        raise HTTPException(403, "请由助手客户端管理自己的连接。")
+    token = authorization[7:]
+    provider = state.get("ai", {}).get("configuration", {}).get("provider")
+    if not token or len(token) > 512 or provider not in {"codex", "claude-code"}:
+        raise HTTPException(401, "连接已过期，请重新连接。")
+    wanted = digest(token)
+    for session in state.get("assistant_sessions", []):
+        if (
+            session.get("expires_at", 0) > time.time()
+            and session.get("provider", provider) == provider
+            and hmac.compare_digest(session.get("token_hash", ""), wanted)
+        ):
+            return session
     raise HTTPException(401, "连接已过期，请重新连接。")
 
 

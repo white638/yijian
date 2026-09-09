@@ -34,7 +34,13 @@ def install(source, target, replace=False):
     backup = None
     if target.exists():
         stamp = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
-        backup = target.with_name(f"{target.name}.backup-{stamp}-{uuid4().hex[:6]}")
+        backup_name = f"{target.name}.backup-{stamp}-{uuid4().hex}"
+        if target.parent.name == "skills":
+            backup_root = target.parent.parent / ".yijian-skill-backups"
+            backup_root.mkdir(parents=True, exist_ok=True)
+            backup = backup_root / backup_name
+        else:
+            backup = target.with_name(backup_name)
         target.rename(backup)
     try:
         staged.rename(target)

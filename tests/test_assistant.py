@@ -1,6 +1,8 @@
 """Exercise the portable skill against the native HTTP contract."""
 
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from contextlib import redirect_stderr, redirect_stdout
+from io import StringIO
 import importlib.util
 import json
 import os
@@ -34,9 +36,14 @@ class AssistantTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
-        self.cache = Path(self.temp.name) / "credentials"
+        self.cache = Path(self.temp.name).resolve() / "credentials"
         self.token, self.code = secrets.token_urlsafe(24), secrets.token_urlsafe(12)
         self.active, self.used = False, False
+        self.valid_tokens, self.verified_tokens, self.revoked_tokens = set(), set(), set()
+        self.state_status, self.verify_status = 200, 200
+        self.device_code = secrets.token_urlsafe(32)
+        self.device_outcomes = ["pending", "approved"]
+        self.client_name = "Codex"
         self.requests, self.outfits = [], []
         self.items = [
             {
@@ -75,19 +82,57 @@ class AssistantTests(unittest.TestCase):
                     else None
                 )
                 case.requests.append((self.command, self.path, body))
+                if self.path == "/api/ai/device/start" and self.command == "POST":
+                    if body not in ({"client": "codex"}, {"client": "claude-code"}):
+                        return self.send({}, 409)
+                    case.client_name = "Codex" if body["client"] == "codex" else "Claude Code"
+                    return self.send(
+                        {
+                            "device_code": case.device_code,
+                            "user_code": "ABCD-EFGH",
+                            "expires_in": 300,
+                        }
+                    )
+                if self.path == "/api/ai/device/poll" and self.command == "POST":
+                    if body != {"device_code": case.device_code}:
+                        return self.send({}, 401)
+                    outcome = case.device_outcomes.pop(0)
+                    if outcome == 429:
+                        return self.send({}, 429)
+                    if outcome == "approved":
+                        case.active = True
+                        case.valid_tokens.add(case.token)
+                        return self.send(
+                            {"status": "approved", "access_token": case.token, "expires_in": 3600}
+                        )
+                    return self.send({"status": outcome})
                 if self.path == "/api/ai/connect":
                     if not case.used and body == {"code": case.code}:
                         case.used = case.active = True
+                        case.valid_tokens.add(case.token)
                         return self.send({"access_token": case.token, "expires_in": 3600})
                     return self.send({}, 401)
-                if not case.active or self.headers.get("Authorization") != "Bearer " + case.token:
+                authorization = self.headers.get("Authorization", "")
+                token = authorization.removeprefix("Bearer ")
+                if not authorization.startswith("Bearer ") or token not in case.valid_tokens:
                     return self.send({}, 401)
                 if self.path == "/api/state":
-                    return self.send({"items": case.items, "wear_events": []})
+                    return self.send({"items": case.items, "wear_events": []}, case.state_status)
+                if self.path == "/api/ai/connection/verify" and self.command == "POST":
+                    if case.verify_status != 200:
+                        return self.send({}, case.verify_status)
+                    case.verified_tokens.add(token)
+                    return self.send(
+                        {"connected": True, "client_name": case.client_name, "expires_at": time.time() + 3600}
+                    )
                 if self.path == "/api/ai/settings":
                     return self.send({"provider": "codex", "configured": True, "has_key": False})
-                if self.path == "/api/ai/disconnect":
-                    case.active = False
+                if self.path == "/api/ai/connection" and self.command == "DELETE":
+                    case.valid_tokens.discard(token)
+                    case.verified_tokens.discard(token)
+                    case.revoked_tokens.add(token)
+                    if token == case.token:
+                        case.active = False
                     return self.send({"ok": True})
                 if self.path.startswith("/api/images/"):
                     return self.send(b"photo-content", image=True)
@@ -111,6 +156,7 @@ class AssistantTests(unittest.TestCase):
             do_GET = handle_request
             do_POST = handle_request
             do_PATCH = handle_request
+            do_DELETE = handle_request
 
         self.http = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
         self.thread = threading.Thread(target=self.http.serve_forever, daemon=True)
@@ -126,8 +172,39 @@ class AssistantTests(unittest.TestCase):
 
     def connect(self):
         response = bridge.request(self.server, "/ai/connect", method="POST", payload={"code": self.code})
-        bridge.store_credentials(self.cache, self.server, response)
+        bridge.complete_connection(self.cache, self.server, response)
         return bridge.load_token(self.cache, self.server)
+
+    def call_main(self, *command):
+        output, errors = StringIO(), StringIO()
+        with (
+            redirect_stdout(output),
+            redirect_stderr(errors),
+            patch.object(bridge.sys, "stdin", StringIO(self.code + "\n")),
+        ):
+            status = bridge.main(["--server", self.server, "--cache-dir", str(self.cache), *command])
+        text = output.getvalue() + errors.getvalue()
+        self.assertNotIn(self.token, text)
+        self.assertNotIn(self.code, text)
+        self.assertNotIn(self.device_code, text)
+        return status, output.getvalue(), errors.getvalue()
+
+    def existing_credentials(self):
+        old = secrets.token_urlsafe(24)
+        self.valid_tokens.add(old)
+        bridge.store_credentials(self.cache, self.server, {"access_token": old, "expires_in": 3600})
+        return old, bridge.credential_path(self.cache, self.server).read_bytes()
+
+    def issued_response(self):
+        return bridge.request(self.server, "/ai/connect", method="POST", payload={"code": self.code})
+
+    def assert_old_credentials_preserved(self, token, content):
+        self.assertEqual(content, bridge.credential_path(self.cache, self.server).read_bytes())
+        self.assertEqual(token, bridge.load_token(self.cache, self.server))
+        self.assertIn(token, self.valid_tokens)
+        self.assertNotIn(token, self.revoked_tokens)
+        self.assertNotIn(self.token, self.valid_tokens)
+        self.assertIn(self.token, self.revoked_tokens)
 
     def run_cli(self, *command, stdin=None, expected=0):
         result = subprocess.run(
@@ -146,7 +223,10 @@ class AssistantTests(unittest.TestCase):
 
     def test_real_cli_connect_read_photo_tag_save_and_revoke(self):
         self.items[0]["name"] = "蓝色上衣 👕"
-        self.assertTrue(self.run_cli("connect", stdin=self.code + "\n")["connected"])
+        connected = self.run_cli("connect", "--code-stdin", stdin=self.code + "\n")
+        self.assertTrue(connected["connected"])
+        self.assertEqual(len(self.items), connected["wardrobe_items"])
+        self.assertIn(self.token, self.verified_tokens)
         saved = bridge.credential_path(self.cache, self.server)
         if sys.platform == "win32":
             self.assertNotIn(self.token, saved.read_text())
@@ -176,6 +256,227 @@ class AssistantTests(unittest.TestCase):
         self.assertFalse(saved.exists())
         self.assertFalse(self.active)
         self.assertFalse(any("/wear" in path for _, path, _ in self.requests))
+
+    def test_preflight_failure_does_not_issue_token_or_start_device_pairing(self):
+        for command in (("connect", "--code-stdin"), ("connect",)):
+            with (
+                self.subTest(command=command),
+                patch.object(bridge, "preflight_credentials", side_effect=bridge.BridgeError("缓存不可写")),
+            ):
+                status, output, error = self.call_main(*command)
+                self.assertEqual(1, status)
+                self.assertEqual("", output)
+                self.assertIn("缓存不可写", error)
+                self.assertEqual([], self.requests)
+                self.assertFalse(self.active)
+                self.assertFalse(self.used)
+
+    def test_preflight_roundtrip_leaves_existing_credentials_unchanged(self):
+        old, before = self.existing_credentials()
+        bridge.preflight_credentials(self.cache)
+        self.assertEqual(before, bridge.credential_path(self.cache, self.server).read_bytes())
+        self.assertEqual(old, bridge.load_token(self.cache, self.server))
+        self.assertFalse(list(self.cache.glob(".write-check-*")))
+        self.assertEqual([], self.requests)
+
+    def test_atomic_save_failure_revokes_new_token_and_preserves_old_credentials(self):
+        old, before = self.existing_credentials()
+        response = self.issued_response()
+        with patch.object(bridge.os, "replace", side_effect=PermissionError("cache denied")):
+            with self.assertRaises(PermissionError):
+                bridge.complete_connection(self.cache, self.server, response)
+        self.assert_old_credentials_preserved(old, before)
+        self.assertFalse(list(self.cache.glob("*.tmp")))
+        self.assertFalse(any(path == "/api/ai/connection/verify" for _, path, _ in self.requests))
+
+    def test_cache_decryption_failure_revokes_new_token_and_restores_old_credentials(self):
+        old, before = self.existing_credentials()
+        response = self.issued_response()
+        with patch.object(bridge, "load_token", side_effect=bridge.BridgeError("wrong identity")):
+            with self.assertRaises(bridge.BridgeError):
+                bridge.complete_connection(self.cache, self.server, response)
+        self.assert_old_credentials_preserved(old, before)
+
+    def test_unreadable_previous_cache_revokes_new_token_without_changing_the_file(self):
+        old, before = self.existing_credentials()
+        response = self.issued_response()
+        previous = bridge.credential_path(self.cache, self.server)
+        read_bytes = Path.read_bytes
+
+        def unreadable(path):
+            if path == previous:
+                raise PermissionError("existing credential cannot be read")
+            return read_bytes(path)
+
+        with patch.object(Path, "read_bytes", unreadable):
+            with self.assertRaises((PermissionError, bridge.BridgeError)):
+                bridge.complete_connection(self.cache, self.server, response)
+        self.assert_old_credentials_preserved(old, before)
+
+    def test_state_read_failure_revokes_new_token_and_restores_old_credentials(self):
+        old, before = self.existing_credentials()
+        response = self.issued_response()
+        self.state_status = 503
+        with self.assertRaises(bridge.BridgeError):
+            bridge.complete_connection(self.cache, self.server, response)
+        self.assert_old_credentials_preserved(old, before)
+        self.assertFalse(any(path == "/api/ai/connection/verify" for _, path, _ in self.requests))
+
+    def test_verify_failure_revokes_new_token_and_restores_old_credentials(self):
+        old, before = self.existing_credentials()
+        response = self.issued_response()
+        self.verify_status = 403
+        with self.assertRaises(bridge.BridgeError):
+            bridge.complete_connection(self.cache, self.server, response)
+        self.assert_old_credentials_preserved(old, before)
+        self.assertEqual(
+            [("GET", "/api/state"), ("POST", "/api/ai/connection/verify"), ("DELETE", "/api/ai/connection")],
+            [(method, path) for method, path, _ in self.requests[1:]],
+        )
+
+    def test_initial_verification_failure_removes_unusable_new_credentials(self):
+        response = self.issued_response()
+        self.verify_status = 503
+        with self.assertRaises(bridge.BridgeError):
+            bridge.complete_connection(self.cache, self.server, response)
+        self.assertFalse(bridge.credential_path(self.cache, self.server).exists())
+        self.assertFalse(self.active)
+        self.assertIn(self.token, self.revoked_tokens)
+
+    def test_failed_connection_does_not_overwrite_a_concurrent_connection(self):
+        response = self.issued_response()
+        concurrent = secrets.token_urlsafe(24)
+        self.valid_tokens.add(concurrent)
+
+        def replace_during_reload(cache, server):
+            bridge.store_credentials(cache, server, {"access_token": concurrent, "expires_in": 3600})
+            return concurrent
+
+        with patch.object(bridge, "load_token", side_effect=replace_during_reload):
+            with self.assertRaises(bridge.BridgeError):
+                bridge.complete_connection(self.cache, self.server, response)
+        self.assertEqual(concurrent, bridge.load_token(self.cache, self.server))
+        self.assertIn(concurrent, self.valid_tokens)
+        self.assertNotIn(concurrent, self.revoked_tokens)
+        self.assertIn(self.token, self.revoked_tokens)
+
+    def test_concurrent_write_before_cache_reload_is_not_rolled_back(self):
+        self.existing_credentials()
+        response = self.issued_response()
+        concurrent = secrets.token_urlsafe(24)
+        self.valid_tokens.add(concurrent)
+        store = bridge.store_credentials
+        concurrent_bytes = None
+
+        def replaced_before_return(cache, server, connection):
+            nonlocal concurrent_bytes
+            own_bytes = store(cache, server, connection)
+            store(cache, server, {"access_token": concurrent, "expires_in": 3600})
+            concurrent_bytes = bridge.credential_path(cache, server).read_bytes()
+            return own_bytes
+
+        with patch.object(bridge, "store_credentials", side_effect=replaced_before_return):
+            with self.assertRaises(bridge.BridgeError):
+                bridge.complete_connection(self.cache, self.server, response)
+        self.assertEqual(concurrent_bytes, bridge.credential_path(self.cache, self.server).read_bytes())
+        self.assertEqual(concurrent, bridge.load_token(self.cache, self.server))
+        self.assertIn(concurrent, self.valid_tokens)
+        self.assertNotIn(concurrent, self.revoked_tokens)
+        self.assertIn(self.token, self.revoked_tokens)
+
+    def test_successful_reconnect_retires_previous_token_after_verifying_new_one(self):
+        old, _ = self.existing_credentials()
+        response = self.issued_response()
+        result = bridge.complete_connection(self.cache, self.server, response)
+        self.assertTrue(result["connected"])
+        self.assertEqual(self.token, bridge.load_token(self.cache, self.server))
+        self.assertIn(self.token, self.verified_tokens)
+        self.assertIn(self.token, self.valid_tokens)
+        self.assertNotIn(self.token, self.revoked_tokens)
+        self.assertNotIn(old, self.valid_tokens)
+        self.assertIn(old, self.revoked_tokens)
+        self.assertEqual(
+            [
+                ("POST", "/api/ai/connect"),
+                ("GET", "/api/state"),
+                ("POST", "/api/ai/connection/verify"),
+                ("DELETE", "/api/ai/connection"),
+            ],
+            [(method, path) for method, path, _ in self.requests],
+        )
+        bridge.request(self.server, "/ai/connection", token=self.token, method="DELETE")
+        self.assertEqual(set(), self.valid_tokens)
+
+    def test_connect_lock_conflict_preserves_cache_and_revokes_new_token(self):
+        old, before = self.existing_credentials()
+        response = self.issued_response()
+        with bridge.credential_lock(self.cache, self.server):
+            with self.assertRaises(bridge.BridgeError):
+                bridge.complete_connection(self.cache, self.server, response)
+            self.assert_old_credentials_preserved(old, before)
+        self.assertEqual(
+            [("POST", "/api/ai/connect"), ("DELETE", "/api/ai/connection")],
+            [(method, path) for method, path, _ in self.requests],
+        )
+        with bridge.credential_lock(self.cache, self.server):
+            self.assertEqual(before, bridge.credential_path(self.cache, self.server).read_bytes())
+
+    def test_disconnect_lock_conflict_does_not_revoke_or_remove_credentials(self):
+        old, before = self.existing_credentials()
+        with bridge.credential_lock(self.cache, self.server):
+            status, _, error = self.call_main("disconnect")
+            self.assertEqual(1, status)
+            self.assertIn("另一条连接", error)
+            self.assertEqual(before, bridge.credential_path(self.cache, self.server).read_bytes())
+            self.assertIn(old, self.valid_tokens)
+            self.assertEqual([], self.requests)
+        status, _, error = self.call_main("disconnect")
+        self.assertEqual(0, status, error)
+        self.assertNotIn(old, self.valid_tokens)
+        self.assertFalse(bridge.credential_path(self.cache, self.server).exists())
+
+    def test_status_verifies_access_before_reading_connection_settings(self):
+        self.connect()
+        self.requests.clear()
+        result = self.run_cli("status")
+        self.assertTrue(result["connected"])
+        self.assertEqual(len(self.items), result["wardrobe_items"])
+        self.assertEqual(
+            [("GET", "/api/state"), ("POST", "/api/ai/connection/verify"), ("GET", "/api/ai/settings")],
+            [(method, path) for method, path, _ in self.requests],
+        )
+
+    def test_device_connect_waits_for_approval_then_reads_and_verifies(self):
+        with patch.object(bridge.time, "sleep"):
+            status, output, error = self.call_main("connect", "--client", "claude-code")
+        self.assertEqual(0, status, error)
+        self.assertIn("Claude Code", output)
+        self.assertIn("ABCD-EFGH", output)
+        connected = json.loads(output[output.index("{\n") :])
+        self.assertTrue(connected["connected"])
+        self.assertEqual("Claude Code", connected["client_name"])
+        self.assertEqual(self.token, bridge.load_token(self.cache, self.server))
+        self.assertIn(self.token, self.verified_tokens)
+        self.assertEqual(
+            [
+                ("POST", "/api/ai/device/start"),
+                ("POST", "/api/ai/device/poll"),
+                ("POST", "/api/ai/device/poll"),
+                ("GET", "/api/state"),
+                ("POST", "/api/ai/connection/verify"),
+            ],
+            [(method, path) for method, path, _ in self.requests],
+        )
+        self.assertEqual({"client": "claude-code"}, self.requests[0][2])
+
+    def test_device_connect_retries_rate_limited_poll_without_starting_new_pairing(self):
+        self.device_outcomes = [429, "approved"]
+        with patch.object(bridge.time, "sleep"):
+            status, _, error = self.call_main("connect")
+        self.assertEqual(0, status, error)
+        self.assertEqual(1, sum(path == "/api/ai/device/start" for _, path, _ in self.requests))
+        self.assertEqual(2, sum(path == "/api/ai/device/poll" for _, path, _ in self.requests))
+        self.assertIn(self.token, self.verified_tokens)
 
     def test_pairing_is_one_time_and_http_errors_do_not_expose_response(self):
         self.connect()
@@ -278,7 +579,7 @@ class AssistantSafetyTests(unittest.TestCase):
     def test_installer_preserves_changes_and_copies_self_contained_skill(self):
         source = CLI.parents[1]
         with tempfile.TemporaryDirectory() as directory:
-            target = Path(directory) / ".agents/skills/yijian"
+            target = Path(directory).resolve() / ".agents/skills/yijian"
             first = installer.install(source, target)
             self.assertTrue(first["changed"])
             self.assertTrue((target / "SKILL.md").exists())
@@ -288,10 +589,61 @@ class AssistantSafetyTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 installer.install(source, target)
             result = installer.install(source, target, replace=True)
-            self.assertEqual("personal edit", (Path(result["backup"]) / "SKILL.md").read_text())
+            backup = Path(result["backup"])
+            self.assertEqual(target.parent.parent / ".yijian-skill-backups", backup.parent)
+            self.assertFalse(backup.is_relative_to(target.parent))
+            self.assertEqual("personal edit", (backup / "SKILL.md").read_text())
             self.assertEqual(installer.files(source), installer.files(target))
+            self.assertEqual([target / "SKILL.md"], list(target.parent.glob("*/SKILL.md")))
+            (target / "SKILL.md").write_text("another personal edit", encoding="utf-8")
+            another = Path(installer.install(source, target, replace=True)["backup"])
+            self.assertNotEqual(backup, another)
+            self.assertFalse(another.is_relative_to(target.parent))
+            self.assertEqual("personal edit", (backup / "SKILL.md").read_text())
+            self.assertEqual("another personal edit", (another / "SKILL.md").read_text())
             with self.assertRaises(ValueError):
                 installer.install(source, source)
+
+    def test_custom_installation_keeps_an_adjacent_backup(self):
+        source = CLI.parents[1]
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory).resolve() / "custom-location/yijian"
+            installer.install(source, target)
+            (target / "SKILL.md").write_text("Custom instructions", encoding="utf-8")
+            before = installer.files(target)
+            backup = Path(installer.install(source, target, replace=True)["backup"])
+            self.assertEqual(target.parent, backup.parent)
+            self.assertNotEqual(target, backup)
+            self.assertEqual(before, installer.files(backup))
+            self.assertEqual(installer.files(source), installer.files(target))
+
+    def test_installation_failure_rolls_back_the_original_skill_from_either_backup_location(self):
+        source = CLI.parents[1]
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            for location in (".agents/skills/yijian", "custom-location/yijian"):
+                with self.subTest(location=location):
+                    target = root / location
+                    installer.install(source, target)
+                    (target / "SKILL.md").write_text("Keep my original instructions", encoding="utf-8")
+                    (target / "notes.txt").write_text("Keep my notes", encoding="utf-8")
+                    before = installer.files(target)
+                    rename = Path.rename
+                    backups = []
+
+                    def fail_staged_install(path, destination):
+                        if path.name.startswith(".yijian-install-") and destination == target:
+                            raise OSError("destination temporarily unavailable")
+                        if path == target:
+                            backups.append(destination)
+                        return rename(path, destination)
+
+                    with patch.object(Path, "rename", fail_staged_install):
+                        with self.assertRaises(OSError):
+                            installer.install(source, target, replace=True)
+                    self.assertEqual(before, installer.files(target))
+                    self.assertEqual(1, len(backups))
+                    self.assertFalse(backups[0].exists())
 
 
 if __name__ == "__main__":
