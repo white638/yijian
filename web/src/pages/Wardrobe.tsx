@@ -5,11 +5,11 @@ import {
   Plus,
   Search,
   SlidersHorizontal,
-  ChartNoAxesCombined,
 } from "lucide-react";
 import { useApp } from "../Store";
 import { categories, type Category, itemName, dateLabel } from "../types";
 import { Button, Garment, Empty, Field, Sheet } from "../components/UI";
+import { FeatureIcon } from "../components/FeatureIcon";
 export function Wardrobe() {
   const { state, openItem, openAdd, navigate } = useApp();
   const [category, setCategory] = useState("all");
@@ -80,14 +80,14 @@ export function Wardrobe() {
       </div>
       <div className="wardrobe-shortcuts">
         <button onClick={openAdd}>
-          <span>
-            <Plus size={24} />
+          <span className="illustrated-shortcut">
+            <FeatureIcon name="add" />
           </span>
           添加衣物
         </button>
         <button onClick={() => navigate("stats")}>
-          <span>
-            <ChartNoAxesCombined size={23} />
+          <span className="illustrated-shortcut">
+            <FeatureIcon name="stats" />
           </span>
           风格统计
         </button>

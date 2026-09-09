@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { Check, Copy, ExternalLink, PlugZap, Sparkles } from "lucide-react";
+import { Check, Copy, ExternalLink, PlugZap } from "lucide-react";
+import { FeatureIcon } from "./FeatureIcon";
 import { api, send, failure } from "../api";
 import { useApp } from "../Store";
 import type { AISettings, Provider } from "../types";
@@ -121,9 +122,7 @@ export function AIConnect({ onFinish }: { onFinish?: () => void }) {
   return (
     <div className="ai-connect stack">
       <div className="row between">
-        <div className="intro-icon">
-          <Sparkles size={27} />
-        </div>
+        <FeatureIcon name="assistant" className="connect-illustration" />
         {onFinish && (
           <Button kind="ghost" disabled={!!busy} onClick={onFinish}>
             暂时跳过
@@ -210,7 +209,7 @@ export function AIConnect({ onFinish }: { onFinish?: () => void }) {
                         await navigator.clipboard.writeText(code.code);
                         notify("连接码已复制。");
                       } catch {
-                        notify("请选中连接码手动复制。");
+                        notify("请选中连接码手动复制。", "info");
                       }
                     }}
                   >

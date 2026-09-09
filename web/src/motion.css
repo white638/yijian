@@ -1,0 +1,289 @@
+.route-content {
+  min-width: 0;
+}
+
+:is(
+  .button,
+  .icon-button,
+  .shortcut,
+  .garment-card,
+  .saved-look-card,
+  .option-tile,
+  .provider,
+  .desktop-add,
+  .central-add
+):not(:disabled) {
+  transition:
+    background-color 160ms ease,
+    border-color 160ms ease,
+    box-shadow 200ms ease,
+    translate 200ms cubic-bezier(0.2, 0.7, 0.2, 1),
+    scale 160ms ease;
+}
+
+:is(
+    .button,
+    .icon-button,
+    .option-tile,
+    .provider,
+    .desktop-add,
+    .central-add
+  ):not(:disabled):active {
+  scale: 0.97;
+}
+
+:is(.shortcut, .garment-card, .saved-look-card):not(:disabled):active {
+  scale: 0.985;
+}
+
+.feature-icon__object,
+.feature-icon__accent,
+.feature-icon__shadow {
+  transform-box: fill-box;
+  transform-origin: center;
+  transition:
+    translate 220ms cubic-bezier(0.2, 0.7, 0.2, 1),
+    rotate 220ms ease,
+    opacity 220ms ease;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  :is(.shortcut, .option-tile, .saved-look-card):not(:disabled):hover {
+    translate: 0 -2px;
+    box-shadow: 0 5px 14px #3434490b;
+  }
+
+  .garment-card:not(:disabled):hover {
+    background-color: #fafafd;
+    box-shadow: inset 0 0 0 1px #7377c122;
+  }
+
+  :is(.button, .icon-button, .desktop-add):not(:disabled):hover {
+    translate: 0 -1px;
+  }
+
+  :is(.shortcut, .provider):not(:disabled):hover .feature-icon__object {
+    translate: 0 -2px;
+    rotate: -2deg;
+  }
+
+  :is(.shortcut, .provider):not(:disabled):hover .feature-icon__accent {
+    rotate: 3deg;
+  }
+
+  :is(.shortcut, .provider):not(:disabled):hover .feature-icon__shadow {
+    opacity: 0.12;
+  }
+}
+
+.sheet[open] {
+  animation: sheet-arrive 220ms cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+.sheet[open]::backdrop {
+  animation: veil-arrive 180ms ease-out;
+}
+
+.toast {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  animation: feedback-arrive 220ms cubic-bezier(0.2, 0.7, 0.2, 1);
+  pointer-events: none;
+}
+
+.toast-mark {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  flex: 0 0 22px;
+  border-radius: 50%;
+  color: #e3f2e9;
+  background: #ffffff1a;
+}
+
+.toast-mark.info {
+  color: #eeeeff;
+}
+
+.toast-mark.success svg {
+  animation: confirm-arrive 220ms 60ms ease-out both;
+}
+
+.recognition-ready {
+  animation: feedback-arrive 220ms ease-out;
+}
+
+.file-list > div > span:first-child {
+  display: inline-flex;
+  flex: 0 0 44px;
+  border-radius: 7px;
+}
+
+.upload-preview {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 50px;
+  background: #e9e9f0;
+  border-radius: 7px;
+}
+
+.upload-preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.image-processing {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+}
+
+.image-processing::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  height: 35%;
+  z-index: 1;
+  background: linear-gradient(transparent, #8c91d020);
+  border-bottom: 1px solid #777fc18c;
+  pointer-events: none;
+  animation: image-scan 1700ms ease-in-out infinite;
+}
+
+.upload-status {
+  display: grid;
+  gap: 8px;
+}
+
+.upload-status__track {
+  display: block;
+  height: 3px;
+  border-radius: 3px;
+  background: #e6e7f0;
+  overflow: hidden;
+}
+
+.upload-status__track::after {
+  content: "";
+  display: block;
+  width: 35%;
+  height: 100%;
+  border-radius: inherit;
+  background: #747bc0;
+  animation: upload-wait 1500ms ease-in-out infinite;
+}
+
+@keyframes sheet-arrive {
+  from {
+    opacity: 0;
+    translate: 0 16px;
+  }
+  to {
+    opacity: 1;
+    translate: 0 0;
+  }
+}
+
+@keyframes veil-arrive {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes feedback-arrive {
+  from {
+    opacity: 0;
+    translate: 0 7px;
+  }
+  to {
+    opacity: 1;
+    translate: 0 0;
+  }
+}
+
+@keyframes confirm-arrive {
+  from {
+    opacity: 0;
+    scale: 0.8;
+  }
+  to {
+    opacity: 1;
+    scale: 1;
+  }
+}
+
+@keyframes image-scan {
+  0% {
+    translate: 0 -100%;
+    opacity: 0;
+  }
+  15% {
+    opacity: 1;
+  }
+  85% {
+    opacity: 1;
+  }
+  100% {
+    translate: 0 300%;
+    opacity: 0;
+  }
+}
+
+@keyframes upload-wait {
+  from {
+    translate: -100% 0;
+  }
+  to {
+    translate: 390% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+    scroll-behavior: auto !important;
+  }
+
+  :is(
+    .button,
+    .icon-button,
+    .shortcut,
+    .garment-card,
+    .saved-look-card,
+    .option-tile,
+    .provider,
+    .desktop-add,
+    .central-add
+  ),
+  .feature-icon__object,
+  .feature-icon__accent,
+  .feature-icon__shadow {
+    translate: none !important;
+    rotate: none !important;
+    scale: none !important;
+  }
+
+  .image-processing::after {
+    display: none;
+  }
+
+  .image-processing {
+    outline: 2px solid #747bc0;
+    outline-offset: -2px;
+  }
+
+  .upload-status__track::after {
+    width: 100%;
+    opacity: 0.55;
+  }
+}

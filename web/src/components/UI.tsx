@@ -22,9 +22,10 @@ export function Button({
     <button
       {...props}
       disabled={props.disabled || busy}
+      aria-busy={busy || props["aria-busy"]}
       className={`button ${kind} ${props.className || ""}`}
     >
-      {busy && <LoaderCircle size={17} className="spin" />}
+      {busy && <LoaderCircle size={17} className="spin" aria-hidden="true" />}
       {children}
     </button>
   );
@@ -77,11 +78,13 @@ export function Sheet({
   onClose,
   children,
   wide = false,
+  busy = false,
 }: {
   title: string;
   onClose: () => void;
   children: ReactNode;
   wide?: boolean;
+  busy?: boolean;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
   const before = useRef<HTMLElement | null>(null);
@@ -118,6 +121,7 @@ export function Sheet({
         }
       }}
       aria-label={title}
+      aria-busy={busy}
     >
       <div className="sheet-handle" />
       <header className="sheet-header">
@@ -174,12 +178,17 @@ export function SectionTitle({
 export function Garment({
   item,
   className = "",
+  processing = false,
 }: {
   item: Item;
   className?: string;
+  processing?: boolean;
 }) {
   return (
-    <div className={`garment-image ${className}`}>
+    <div
+      className={`garment-image ${className} ${processing ? "image-processing" : ""}`}
+      aria-busy={processing || undefined}
+    >
       {item.image_url ? (
         <img src={item.image_url} alt={itemName(item)} loading="lazy" />
       ) : (

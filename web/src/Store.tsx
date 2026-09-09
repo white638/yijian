@@ -7,11 +7,13 @@ import {
   type ReactNode,
 } from "react";
 import { api } from "./api";
+import { Check, Info } from "lucide-react";
 import type { AppState } from "./types";
+export type NoticeTone = "success" | "info";
 interface AppContext {
   state: AppState;
   refresh: () => Promise<void>;
-  notify: (text: string) => void;
+  notify: (text: string, tone?: NoticeTone) => void;
   openItem: (id: string) => void;
   openAdd: () => void;
   openOutfit: (id?: string) => void;
@@ -55,7 +57,13 @@ export function useSnapshot() {
   }, []);
   return { state, error, refresh };
 }
-export function Toast({ text }: { text: string }) {
+export function Toast({
+  text,
+  tone = "success",
+}: {
+  text: string;
+  tone?: NoticeTone;
+}) {
   const [show, setShow] = useState(false);
   useEffect(() => {
     if (!text) return;
@@ -64,8 +72,15 @@ export function Toast({ text }: { text: string }) {
     return () => clearTimeout(t);
   }, [text]);
   return show ? (
-    <div className="toast" role="status">
-      {text.split("\u0000")[0]}
+    <div key={text} className="toast" role="status" aria-atomic="true">
+      <span className={`toast-mark ${tone}`} aria-hidden="true">
+        {tone === "success" ? (
+          <Check size={15} strokeWidth={2.4} />
+        ) : (
+          <Info size={17} />
+        )}
+      </span>
+      <span>{text.split("\u0000")[0]}</span>
     </div>
   ) : null;
 }

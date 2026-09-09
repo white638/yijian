@@ -167,6 +167,27 @@ describe("persistent wardrobe flows", () => {
       );
     },
   );
+  it("reports failed background removal as information when the request resolves", async () => {
+    const onClose = vi.fn();
+    const item = { ...shirt, image_url: "/api/images/shirt-original.jpg" };
+    mocks.api.mockResolvedValueOnce({ ...item, background_status: "failed" });
+    mount(<ItemEditor item={item} onClose={onClose} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "去背景" }));
+
+    await waitFor(() =>
+      expect(mocks.notify).toHaveBeenCalledWith(
+        "去背景未完成，已保留原图，可以重试。",
+        "info",
+      ),
+    );
+    expect(mocks.notify).toHaveBeenCalledOnce();
+    expect(mocks.api).toHaveBeenCalledWith("/items/top/background", {
+      method: "POST",
+    });
+    expect(screen.getByRole("button", { name: "去背景" })).toBeEnabled();
+    expect(onClose).not.toHaveBeenCalled();
+  });
   it("preserves an unknown currency when migrated purchase details are saved", async () => {
     mount(<ItemEditor item={shirt} onClose={vi.fn()} />);
     expect(screen.getByLabelText("币种")).toHaveValue("");

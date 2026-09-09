@@ -1,4 +1,4 @@
-import { useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import {
   Camera,
   ImagePlus,
@@ -21,6 +21,20 @@ import {
   translateValue,
 } from "../types";
 import { Button, Field, Sheet, Garment, ErrorText } from "./UI";
+function UploadPreview({ file }: { file: File }) {
+  const [url, setUrl] = useState("");
+  useEffect(() => {
+    if (!URL.createObjectURL) return;
+    const objectUrl = URL.createObjectURL(file);
+    setUrl(objectUrl);
+    return () => URL.revokeObjectURL(objectUrl);
+  }, [file]);
+  return (
+    <span className="upload-preview" aria-hidden="true">
+      {url ? <img src={url} alt="" /> : <ImagePlus size={20} />}
+    </span>
+  );
+}
 export function AddSheet({ onClose }: { onClose: () => void }) {
   const { state, refresh, notify, openItem } = useApp();
   const photo = useRef<HTMLInputElement>(null);
@@ -46,6 +60,7 @@ export function AddSheet({ onClose }: { onClose: () => void }) {
           confirmed: true,
         });
         id = item.id;
+        notify("衣物已添加。");
       } else {
         if (!files.length) throw new Error("先选择衣物照片。");
         const form = new FormData();
@@ -60,6 +75,7 @@ export function AddSheet({ onClose }: { onClose: () => void }) {
           result.warnings.length
             ? result.warnings.join("；")
             : `已添加 ${result.items.length} 件衣物，请核对信息。`,
+          result.warnings.length ? "info" : "success",
         );
       }
       await refresh();
@@ -72,12 +88,13 @@ export function AddSheet({ onClose }: { onClose: () => void }) {
     }
   }
   return (
-    <Sheet title="添加衣物" onClose={onClose}>
+    <Sheet title="添加衣物" onClose={onClose} busy={busy}>
       <form className="stack" onSubmit={submit}>
         <p className="muted">让衣柜从你常穿的一件开始。</p>
         <div className="add-options">
           <button
             type="button"
+            disabled={busy}
             className={`option-tile ${!manual ? "dark" : ""}`}
             onClick={() => {
               setManual(false);
@@ -90,6 +107,7 @@ export function AddSheet({ onClose }: { onClose: () => void }) {
           </button>
           <button
             type="button"
+            disabled={busy}
             className="option-tile"
             onClick={() => {
               setManual(false);
@@ -104,6 +122,7 @@ export function AddSheet({ onClose }: { onClose: () => void }) {
         <input
           ref={photo}
           type="file"
+          disabled={busy}
           multiple
           accept="image/*"
           hidden
@@ -115,6 +134,7 @@ export function AddSheet({ onClose }: { onClose: () => void }) {
         <input
           ref={camera}
           type="file"
+          disabled={busy}
           accept="image/*"
           capture="environment"
           hidden
@@ -125,6 +145,7 @@ export function AddSheet({ onClose }: { onClose: () => void }) {
         />
         <button
           type="button"
+          disabled={busy}
           className="list-row"
           onClick={() => setManual(!manual)}
         >
@@ -137,6 +158,7 @@ export function AddSheet({ onClose }: { onClose: () => void }) {
             <Field label="衣物名称">
               <input
                 value={name}
+                disabled={busy}
                 onChange={(e) => setName(e.target.value)}
                 required
                 placeholder="例如：米白色针织衫"
@@ -146,6 +168,7 @@ export function AddSheet({ onClose }: { onClose: () => void }) {
             <Field label="类别">
               <select
                 value={category}
+                disabled={busy}
                 onChange={(e) => setCategory(e.target.value as Category)}
               >
                 {Object.entries(categories).map(([v, l]) => (
@@ -162,6 +185,7 @@ export function AddSheet({ onClose }: { onClose: () => void }) {
               <input
                 type="checkbox"
                 checked={remove}
+                disabled={busy}
                 onChange={(e) => setRemove(e.target.checked)}
               />
               <span>
@@ -174,13 +198,24 @@ export function AddSheet({ onClose }: { onClose: () => void }) {
               </p>
             )}
             {files.length > 0 && (
-              <div className="file-list">
+              <div className="file-list" aria-busy={busy}>
                 {files.map((f, index) => (
-                  <div key={`${f.name}-${index}`}>
-                    <ImagePlus size={17} />
+                  <div key={`${f.name}-${f.lastModified}-${index}`}>
+                    <span className={busy ? "image-processing" : undefined}>
+                      <UploadPreview file={f} />
+                    </span>
                     <span>{f.name}</span>
                   </div>
                 ))}
+              </div>
+            )}
+            {busy && (
+              <div className="upload-status" role="status">
+                <span className="upload-status__track" aria-hidden="true" />
+                <p className="small muted">
+                  正在上传{remove ? "并处理" : ""} {files.length}{" "}
+                  张照片，请稍候。
+                </p>
               </div>
             )}
             <p className="small muted">
@@ -193,7 +228,9 @@ export function AddSheet({ onClose }: { onClose: () => void }) {
         <ErrorText error={error} />
         <Button type="submit" busy={busy} disabled={!manual && !files.length}>
           {busy
-            ? "正在录入与处理图片…"
+            ? manual
+              ? "正在保存衣物…"
+              : "正在录入与处理图片…"
             : manual
               ? "添加这件衣物"
               : `添加${files.length ? ` ${files.length} 件` : ""}衣物`}
@@ -260,6 +297,7 @@ export function ItemEditor({
     setBusy(kind);
     setError("");
     try {
+      let backgroundFailed = false;
       if (kind === "save") {
         if (
           price !== "" &&
@@ -298,13 +336,15 @@ export function ItemEditor({
         );
       } else if (kind === "delete")
         await api(`/items/${item.id}`, { method: "DELETE" });
-      else
-        await api(
-          kind === "analyze"
-            ? `/ai/analyze/${item.id}`
-            : `/items/${item.id}/${kind}`,
-          { method: "POST" },
-        );
+      else if (kind === "analyze")
+        await api(`/ai/analyze/${item.id}`, { method: "POST" });
+      else {
+        const changed = await api<Item>(`/items/${item.id}/${kind}`, {
+          method: "POST",
+        });
+        backgroundFailed =
+          kind === "background" && changed.background_status === "failed";
+      }
       await refresh();
       notify(
         kind === "save"
@@ -313,7 +353,12 @@ export function ItemEditor({
             ? "衣物已删除。"
             : kind === "analyze"
               ? "已开始识别，完成后请核对。"
-              : "处理完成。",
+              : backgroundFailed
+                ? "去背景未完成，已保留原图，可以重试。"
+                : kind === "restore"
+                  ? "已恢复原图。"
+                  : "背景已去除。",
+        backgroundFailed || kind === "analyze" ? "info" : "success",
       );
       if (kind === "save" || kind === "delete") onClose();
     } catch (e) {
@@ -326,11 +371,17 @@ export function ItemEditor({
     <Sheet
       title={item.confirmed ? "衣物详情" : "核对新衣物"}
       onClose={onClose}
+      busy={!!busy}
       wide
     >
       <div className="item-editor">
         <div className="item-visual stack">
-          <Garment item={item} />
+          <Garment
+            item={item}
+            processing={
+              busy === "background" || item.ai_status === "processing"
+            }
+          />
           {(item.image_url || item.original_url) && (
             <div className="row wrap">
               <Button
@@ -345,6 +396,7 @@ export function ItemEditor({
               {item.original_url && (
                 <Button
                   kind="ghost"
+                  busy={busy === "restore"}
                   disabled={!!busy}
                   onClick={() => action("restore")}
                 >
@@ -353,6 +405,11 @@ export function ItemEditor({
                 </Button>
               )}
             </div>
+          )}
+          {(busy === "background" || busy === "restore") && (
+            <p className="small muted" role="status">
+              {busy === "background" ? "正在去除照片背景…" : "正在恢复原图…"}
+            </p>
           )}
           {item.background_status === "failed" && (
             <p className="small error">去背景未完成，当前保留原图，可重试。</p>
@@ -363,8 +420,8 @@ export function ItemEditor({
             </p>
           )}
           {item.ai_status === "review" && item.updated_at !== loadedAI && (
-            <div className="soft-panel stack tight">
-              <p className="small">
+            <div className="soft-panel stack tight recognition-ready">
+              <p className="small" role="status">
                 识别已完成，可将建议填入名称、类别、颜色、品牌和季节。
               </p>
               <Button kind="secondary" onClick={applyRecognition}>

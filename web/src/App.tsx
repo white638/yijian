@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Home as HomeIcon,
   PanelsTopLeft,
@@ -10,7 +10,7 @@ import {
   ChartNoAxesCombined,
   ArrowRight,
 } from "lucide-react";
-import { useSnapshot, AppProvider, Toast } from "./Store";
+import { useSnapshot, AppProvider, Toast, type NoticeTone } from "./Store";
 import { send, failure } from "./api";
 import { AIConnect } from "./components/AIConnect";
 import { AddSheet, ItemEditor } from "./components/Items";
@@ -38,6 +38,7 @@ export default function App() {
   const { state, error: loadError, refresh } = useSnapshot();
   const [route, setRoute] = useState(readRoute);
   const [notice, setNotice] = useState("");
+  const [noticeTone, setNoticeTone] = useState<NoticeTone>("success");
   const [add, setAdd] = useState(false);
   const [itemId, setItemId] = useState("");
   const [outfitId, setOutfitId] = useState<string | null>(null);
@@ -48,13 +49,17 @@ export default function App() {
   } | null>(null);
   const [finishing, setFinishing] = useState(false);
   const [error, setError] = useState("");
+  const routeContent = useRef<HTMLDivElement>(null);
   const navigate = (page: string) => {
     const base = page.split("?")[0];
     location.hash = routes.has(base) ? page : "home";
     setRoute(routes.has(base) ? base : "home");
     window.scrollTo({ top: 0, behavior: "instant" });
   };
-  const notify = (text: string) => setNotice(`${text}\u0000${Date.now()}`);
+  const notify = (text: string, tone: NoticeTone = "success") => {
+    setNoticeTone(tone);
+    setNotice(`${text}\u0000${Date.now()}`);
+  };
   useEffect(() => {
     const update = () => {
       setRoute(readRoute());
@@ -63,6 +68,25 @@ export default function App() {
     window.addEventListener("hashchange", update);
     return () => window.removeEventListener("hashchange", update);
   }, []);
+  useEffect(() => {
+    const content = routeContent.current;
+    if (!content?.animate || !window.matchMedia) return;
+    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
+    if (reducedMotion.matches) return;
+    const animation = content.animate(
+      [
+        { opacity: 0.35, translate: "0 7px" },
+        { opacity: 1, translate: "0 0" },
+      ],
+      { duration: 220, easing: "cubic-bezier(0.2, 0.7, 0.2, 1)" },
+    );
+    const stop = () => animation.cancel();
+    reducedMotion.addEventListener("change", stop);
+    return () => {
+      animation.cancel();
+      reducedMotion.removeEventListener("change", stop);
+    };
+  }, [route, state?.settings.onboarded]);
   const analyzing = state?.items.some(
     (i) =>
       i.ai_status === "processing" ||
@@ -89,7 +113,7 @@ export default function App() {
   }
   if (!state)
     return (
-      <main className="boot">
+      <main className="boot" aria-busy={!loadError}>
         <span className="brand-word">衣间</span>
         {loadError ? (
           <>
@@ -126,7 +150,7 @@ export default function App() {
           <a className="onboarding-brand" href="#home">
             衣间<span>你的衣物，你的风格</span>
           </a>
-          <section className="onboarding-card">
+          <section className="onboarding-card" aria-busy={finishing}>
             <AIConnect onFinish={finish} />
             {finishing && (
               <p className="muted" role="status">
@@ -198,19 +222,21 @@ export default function App() {
                 <SettingsIcon size={21} />
               </IconButton>
             </div>
-            {route === "home" ? (
-              <Home />
-            ) : route === "wardrobe" ? (
-              <Wardrobe />
-            ) : ["looks", "packing", "calendar"].includes(route) ? (
-              <Looks tab={route} />
-            ) : route === "explore" ? (
-              <Explore />
-            ) : route === "stats" ? (
-              <Stats />
-            ) : (
-              <Settings />
-            )}
+            <div ref={routeContent} className="route-content">
+              {route === "home" ? (
+                <Home />
+              ) : route === "wardrobe" ? (
+                <Wardrobe />
+              ) : ["looks", "packing", "calendar"].includes(route) ? (
+                <Looks tab={route} />
+              ) : route === "explore" ? (
+                <Explore />
+              ) : route === "stats" ? (
+                <Stats />
+              ) : (
+                <Settings />
+              )}
+            </div>
           </div>
           <nav className="bottom-nav" aria-label="底部导航">
             {primary.slice(0, 2).map((n) => (
@@ -268,7 +294,7 @@ export default function App() {
           onClose={() => setPlan(null)}
         />
       )}
-      <Toast text={notice} />
+      <Toast text={notice} tone={noticeTone} />
     </AppProvider>
   );
 }

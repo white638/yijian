@@ -4,19 +4,16 @@ import {
   Bookmark,
   CalendarDays,
   Check,
-  ChartNoAxesCombined,
-  ImagePlus,
   MapPin,
-  MessageCircle,
   Plus,
   RefreshCw,
   Settings2,
   Sparkles,
   Sun,
-  BriefcaseBusiness,
 } from "lucide-react";
 import { useApp } from "../Store";
 import { api, send, failure } from "../api";
+import { FeatureIcon } from "../components/FeatureIcon";
 import {
   type Outfit,
   type Suggestions,
@@ -209,9 +206,7 @@ export function Recommendations({
         </div>
       ) : (
         <div className="recommend-empty">
-          <div className="closet-line-art">
-            <Sparkles size={35} strokeWidth={1.1} />
-          </div>
+          <FeatureIcon name="outfit" className="recommend-illustration" />
           <h3>
             {eligible ? "准备好，发现新组合" : "好穿的搭配，从自己的衣柜开始"}
           </h3>
@@ -291,30 +286,38 @@ export function Home() {
       <section className="home-shortcuts">
         <SectionTitle title="随手用起来" />
         <div className="shortcut-grid">
-          <button className="shortcut featured" onClick={openAdd}>
-            <span className="shortcut-icon blue">
-              <ImagePlus size={32} />
-            </span>
+          <button className="shortcut featured shortcut--add" onClick={openAdd}>
+            <FeatureIcon name="add" />
             <strong>添加衣物</strong>
             <small>让衣柜更完整</small>
           </button>
-          <button className="shortcut featured" onClick={() => openOutfit()}>
-            <span className="shortcut-icon lavender">
-              <Sparkles size={32} />
-            </span>
+          <button
+            className="shortcut featured shortcut--outfit"
+            onClick={() => openOutfit()}
+          >
+            <FeatureIcon name="outfit" />
             <strong>创建穿搭</strong>
             <small>组合自己的风格</small>
           </button>
-          <button className="shortcut" onClick={() => navigate("calendar")}>
-            <CalendarDays size={28} />
+          <button
+            className="shortcut shortcut--calendar"
+            onClick={() => navigate("calendar")}
+          >
+            <FeatureIcon name="calendar" />
             <strong>穿搭日历</strong>
           </button>
-          <button className="shortcut" onClick={() => navigate("packing")}>
-            <BriefcaseBusiness size={28} />
+          <button
+            className="shortcut shortcut--packing"
+            onClick={() => navigate("packing")}
+          >
+            <FeatureIcon name="packing" />
             <strong>旅行打包</strong>
           </button>
-          <button className="shortcut" onClick={() => navigate("stats")}>
-            <ChartNoAxesCombined size={28} />
+          <button
+            className="shortcut shortcut--stats"
+            onClick={() => navigate("stats")}
+          >
+            <FeatureIcon name="stats" />
             <strong>风格统计</strong>
           </button>
         </div>
@@ -487,7 +490,13 @@ export function Explore() {
         />
       )}
       <section className="chat-panel">
-        <SectionTitle title="聊聊你的穿搭" />
+        <div className="assistant-heading">
+          <FeatureIcon name="assistant" />
+          <div>
+            <h2>聊聊你的穿搭</h2>
+            <p>把想法交给造型助手</p>
+          </div>
+        </div>
         {state.ai.capabilities.text ? (
           <>
             <p className="muted small">问问场合、配色或一件衣物的新穿法。</p>
@@ -538,7 +547,6 @@ export function Explore() {
           </>
         ) : (
           <div className="soft-panel stack">
-            <MessageCircle size={27} />
             <p>
               {["codex", "claude-code"].includes(state.ai.provider)
                 ? "在已经连接的助手中打开衣间技能，直接聊聊想穿什么。"
