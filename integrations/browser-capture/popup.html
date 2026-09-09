@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>衣间 · 商品图片采集</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <main>
+      <h1>采集衣物图片</h1>
+      <p>打开商品页，让要导入的图片显示在当前窗口中。</p>
+      <button id="capture" type="button">采集当前可见图片</button>
+      <h2 id="page-title"></h2>
+      <fieldset>
+        <legend>选择一张图片</legend>
+        <div id="choices"></div>
+      </fieldset>
+      <p id="status" role="status"></p>
+      <p id="error" role="alert"></p>
+      <button id="copy" type="button" disabled>复制到衣间</button>
+      <p class="help">
+        采集仅在点击时进行。只复制选中的图片及商品页标题、地址；图片导入后仍可核对。
+      </p>
+    </main>
+    <script type="module" src="entry.js"></script>
+  </body>
+</html>

@@ -9,6 +9,7 @@ import {
   Trash2,
   WandSparkles,
   Check,
+  Link2,
 } from "lucide-react";
 import { api, send, failure } from "../api";
 import { useApp } from "../Store";
@@ -18,9 +19,12 @@ import {
   categories,
   itemName,
   costPerWear,
+  money,
   translateValue,
+  occasions as occasionNames,
 } from "../types";
 import { Button, Field, Sheet, Garment, ErrorText } from "./UI";
+import { ImageImportOptions, LinkImport } from "./LinkImport";
 function UploadPreview({ file }: { file: File }) {
   const [url, setUrl] = useState("");
   useEffect(() => {
@@ -36,12 +40,14 @@ function UploadPreview({ file }: { file: File }) {
   );
 }
 export function AddSheet({ onClose }: { onClose: () => void }) {
-  const { state, refresh, notify, openItem } = useApp();
+  const { refresh, notify, openItem } = useApp();
   const photo = useRef<HTMLInputElement>(null);
   const camera = useRef<HTMLInputElement>(null);
   const [files, setFiles] = useState<File[]>([]);
   const [remove, setRemove] = useState(true);
+  const [autoAnalyze, setAutoAnalyze] = useState(true);
   const [manual, setManual] = useState(false);
+  const [linkImport, setLinkImport] = useState(false);
   const [name, setName] = useState("");
   const [category, setCategory] = useState<Category>("top");
   const [busy, setBusy] = useState(false);
@@ -66,6 +72,7 @@ export function AddSheet({ onClose }: { onClose: () => void }) {
         const form = new FormData();
         files.forEach((f) => form.append("files", f));
         form.append("remove_background", String(remove));
+        form.append("auto_analyze", String(autoAnalyze));
         const result = await api<{ items: Item[]; warnings: string[] }>(
           "/items/upload",
           { method: "POST", body: form },
@@ -87,6 +94,16 @@ export function AddSheet({ onClose }: { onClose: () => void }) {
       setBusy(false);
     }
   }
+  if (linkImport)
+    return (
+      <LinkImport
+        onClose={onClose}
+        onBack={() => {
+          setManual(false);
+          setLinkImport(false);
+        }}
+      />
+    );
   return (
     <Sheet title="添加衣物" onClose={onClose} busy={busy}>
       <form className="stack" onSubmit={submit}>
@@ -147,6 +164,16 @@ export function AddSheet({ onClose }: { onClose: () => void }) {
           type="button"
           disabled={busy}
           className="list-row"
+          onClick={() => setLinkImport(true)}
+        >
+          <Link2 size={22} />
+          <span>从链接导入</span>
+          <span className="muted">商品页或图片链接</span>
+        </button>
+        <button
+          type="button"
+          disabled={busy}
+          className="list-row"
           onClick={() => setManual(!manual)}
         >
           <PenLine size={22} />
@@ -181,22 +208,13 @@ export function AddSheet({ onClose }: { onClose: () => void }) {
           </>
         ) : (
           <>
-            <label className="check-row">
-              <input
-                type="checkbox"
-                checked={remove}
-                disabled={busy}
-                onChange={(e) => setRemove(e.target.checked)}
-              />
-              <span>
-                自动去除照片背景<small>在本机处理；保留去背景前的照片。</small>
-              </span>
-            </label>
-            {remove && !state.features.background_removal_ready && (
-              <p className="small muted">
-                图片处理模块尚未准备好；上传会保留原图，之后可重新去背景。
-              </p>
-            )}
+            <ImageImportOptions
+              removeBackground={remove}
+              onBackgroundChange={setRemove}
+              autoAnalyze={autoAnalyze}
+              onAutoAnalyzeChange={setAutoAnalyze}
+              busy={busy}
+            />
             {files.length > 0 && (
               <div className="file-list" aria-busy={busy}>
                 {files.map((f, index) => (
@@ -218,11 +236,6 @@ export function AddSheet({ onClose }: { onClose: () => void }) {
                 </p>
               </div>
             )}
-            <p className="small muted">
-              {state.ai.capabilities.vision
-                ? "已连接视觉模型，上传后自动识别；识别结果仍由你核对。"
-                : "上传后手动确认类别、颜色等信息，即可开始搭配。"}
-            </p>
           </>
         )}
         <ErrorText error={error} />
@@ -263,9 +276,30 @@ export function ItemEditor({
   const [seasons, setSeasons] = useState(
     item.seasons.map(translateValue).join("、"),
   );
+  const [occasions, setOccasions] = useState(
+    item.occasions.map(translateValue).join("、"),
+  );
+  const [tags, setTags] = useState(item.tags.join("、"));
+  const editedRecognition = useRef(new Set<string>());
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const [loadedAI, setLoadedAI] = useState(item.updated_at);
+  const [recognitionApplied, setRecognitionApplied] = useState(
+    item.ai_status === "review",
+  );
+  const reference = item.reference_price;
+  let referenceSource = "";
+  if (reference) {
+    try {
+      referenceSource = new URL(reference.source_url).hostname;
+    } catch {
+      referenceSource = "";
+    }
+  }
+  useEffect(() => {
+    if (item.ai_status === "review" && item.updated_at !== loadedAI)
+      fillRecognition(false);
+  }, [item, loadedAI]);
   const seasonValues: Record<string, string[]> = {
     春: ["spring"],
     春季: ["spring"],
@@ -278,13 +312,25 @@ export function ItemEditor({
     四季: ["spring", "summer", "autumn", "winter"],
     all: ["spring", "summer", "autumn", "winter"],
   };
-  function applyRecognition() {
-    setName(item.name);
-    setCategory(item.category);
-    setColors(item.colors.map(translateValue).join("、"));
-    setBrand(item.brand || "");
-    setSeasons(item.seasons.map(translateValue).join("、"));
+  function fillRecognition(replaceManual: boolean) {
+    const mayFill = (field: string) =>
+      replaceManual || !editedRecognition.current.has(field);
+    if (mayFill("name")) setName(item.name);
+    if (mayFill("category")) setCategory(item.category);
+    if (mayFill("colors"))
+      setColors(item.colors.map(translateValue).join("、"));
+    if (mayFill("brand")) setBrand(item.brand || "");
+    if (mayFill("seasons"))
+      setSeasons(item.seasons.map(translateValue).join("、"));
+    if (mayFill("occasions"))
+      setOccasions(item.occasions.map(translateValue).join("、"));
+    if (mayFill("tags")) setTags(item.tags.join("、"));
+    if (replaceManual) editedRecognition.current.clear();
     setLoadedAI(item.updated_at);
+    setRecognitionApplied(true);
+  }
+  function applyRecognition() {
+    fillRecognition(true);
     notify("识别结果已填入，请核对后保存。");
   }
   async function action(kind: string) {
@@ -328,6 +374,28 @@ export function ItemEditor({
                   .map((x) => x.trim())
                   .filter(Boolean)
                   .flatMap((s) => seasonValues[s] || [s]),
+              ),
+            ],
+            occasions: [
+              ...new Set(
+                occasions
+                  .split(/[、,，]/)
+                  .map((value) => value.trim())
+                  .filter(Boolean)
+                  .map(
+                    (value) =>
+                      Object.entries(occasionNames).find(
+                        ([, label]) => label === value,
+                      )?.[0] || value,
+                  ),
+              ),
+            ],
+            tags: [
+              ...new Set(
+                tags
+                  .split(/[、,，]/)
+                  .map((value) => value.trim())
+                  .filter(Boolean),
               ),
             ],
             confirmed: true,
@@ -416,33 +484,40 @@ export function ItemEditor({
           )}
           {item.ai_status === "processing" && (
             <p className="small muted" role="status">
-              AI 正在识别，完成后可填入建议。
+              AI 正在识别，完成后会自动填入尚未修改的信息。
             </p>
           )}
-          {item.ai_status === "review" && item.updated_at !== loadedAI && (
+          {item.ai_status === "review" && recognitionApplied && (
             <div className="soft-panel stack tight recognition-ready">
               <p className="small" role="status">
-                识别已完成，可将建议填入名称、类别、颜色、品牌和季节。
+                {editedRecognition.current.size
+                  ? "识别结果已填入未修改的字段，你手动编辑的信息已保留。"
+                  : "识别信息已自动填入，请核对后保存。"}
               </p>
-              <Button kind="secondary" onClick={applyRecognition}>
-                填入最新识别结果
-              </Button>
+              {editedRecognition.current.size > 0 && (
+                <Button kind="secondary" onClick={applyRecognition}>
+                  填入最新识别结果
+                </Button>
+              )}
             </div>
           )}
           {item.ai_status === "error" && (
-            <p className="small error">识别未完成，可以手动填写或重新识别。</p>
+            <p className="small error" role="alert">
+              {item.ai_error || "识别未完成，可以手动填写或重新识别。"}
+            </p>
           )}
-          {state.ai.capabilities.vision && (
-            <Button
-              kind="secondary"
-              disabled={!!busy || item.ai_status === "processing"}
-              busy={busy === "analyze"}
-              onClick={() => action("analyze")}
-            >
-              <Sparkles size={16} />
-              重新识别
-            </Button>
-          )}
+          {state.ai.capabilities.vision &&
+            (item.image_url || item.original_url) && (
+              <Button
+                kind="secondary"
+                disabled={!!busy || item.ai_status === "processing"}
+                busy={busy === "analyze"}
+                onClick={() => action("analyze")}
+              >
+                <Sparkles size={16} />
+                重新识别
+              </Button>
+            )}
           <div className="mini-stats">
             <div>
               <strong>{item.wear_count}</strong>
@@ -464,7 +539,10 @@ export function ItemEditor({
           <Field label="名称">
             <input
               value={name}
-              onChange={(e) => setName(e.target.value)}
+              onChange={(e) => {
+                editedRecognition.current.add("name");
+                setName(e.target.value);
+              }}
               maxLength={120}
               placeholder="给衣物起个名字"
             />
@@ -473,7 +551,10 @@ export function ItemEditor({
             <Field label="类别">
               <select
                 value={category}
-                onChange={(e) => setCategory(e.target.value as Category)}
+                onChange={(e) => {
+                  editedRecognition.current.add("category");
+                  setCategory(e.target.value as Category);
+                }}
               >
                 {Object.entries(categories).map(([v, l]) => (
                   <option key={v} value={v}>
@@ -496,13 +577,22 @@ export function ItemEditor({
           <Field label="颜色" hint="多种颜色用顿号分开。">
             <input
               value={colors}
-              onChange={(e) => setColors(e.target.value)}
+              onChange={(e) => {
+                editedRecognition.current.add("colors");
+                setColors(e.target.value);
+              }}
               placeholder="米白、蓝色"
             />
           </Field>
           <div className="form-grid">
             <Field label="品牌">
-              <input value={brand} onChange={(e) => setBrand(e.target.value)} />
+              <input
+                value={brand}
+                onChange={(e) => {
+                  editedRecognition.current.add("brand");
+                  setBrand(e.target.value);
+                }}
+              />
             </Field>
             <Field label="所属衣橱">
               <input
@@ -514,13 +604,76 @@ export function ItemEditor({
           <Field label="适合季节">
             <input
               value={seasons}
-              onChange={(e) => setSeasons(e.target.value)}
+              onChange={(e) => {
+                editedRecognition.current.add("seasons");
+                setSeasons(e.target.value);
+              }}
               placeholder="春季、秋季"
             />
           </Field>
-          <details className="details" open={item.price != null}>
+          <Field
+            label="适合场合"
+            hint="日常、工作、运动、正式，多种场合用顿号分开。"
+          >
+            <input
+              value={occasions}
+              onChange={(e) => {
+                editedRecognition.current.add("occasions");
+                setOccasions(e.target.value);
+              }}
+              placeholder="日常、工作"
+            />
+          </Field>
+          <Field
+            label="衣物标签"
+            hint="可填写袖长、图案、版型等，多标签用顿号分开。"
+          >
+            <input
+              value={tags}
+              onChange={(e) => {
+                editedRecognition.current.add("tags");
+                setTags(e.target.value);
+              }}
+              placeholder="短袖、纯色、宽松"
+            />
+          </Field>
+          <details className="details" open={item.price != null || !!reference}>
             <summary>购买信息</summary>
             <div className="stack tight">
+              {reference && (
+                <aside className="soft-panel stack tight" aria-label="参考价格">
+                  <div className="row wrap">
+                    <span>参考价 · {reference.label}</span>
+                    <strong>
+                      {money(reference.amount, reference.currency)}
+                    </strong>
+                  </div>
+                  <p className="small muted">
+                    {referenceSource && `来源：${referenceSource} · `}
+                    <time dateTime={reference.observed_at}>
+                      {new Date(reference.observed_at).toLocaleDateString(
+                        "zh-CN",
+                      )}
+                    </time>
+                  </p>
+                  <p className="small muted">
+                    {reference.label === "发售价格"
+                      ? "仅供参考，不代表实际支付金额。"
+                      : "价格随款式与活动变化。"}
+                  </p>
+                  <Button
+                    type="button"
+                    kind="secondary"
+                    disabled={!!busy}
+                    onClick={() => {
+                      setPrice(reference.amount.toFixed(2));
+                      setCurrency(reference.currency);
+                    }}
+                  >
+                    {price === "" ? "用作购入价" : "替换为参考价"}
+                  </Button>
+                </aside>
+              )}
               <div className="form-grid">
                 <Field label="购买价格">
                   <input

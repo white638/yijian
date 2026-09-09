@@ -3,8 +3,9 @@ from __future__ import annotations
 from datetime import date
 from decimal import Decimal, InvalidOperation
 from typing import Literal
+from urllib.parse import urlsplit
 
-from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, SecretStr, field_validator
 
 Category = Literal["top", "bottom", "dress", "outerwear", "shoes", "bag", "accessory", "other"]
 Status = Literal["available", "laundry", "archived"]
@@ -17,6 +18,36 @@ class StrictModel(BaseModel):
 
 class SessionInput(StrictModel):
     code: SecretStr | None = Field(default=None, max_length=200)
+
+
+class ReferencePrice(StrictModel):
+    amount: float = Field(ge=0, le=100000000, allow_inf_nan=False, strict=True)
+    currency: Currency
+    label: Literal["页面售价", "起售价", "发售价格"]
+    observed_at: AwareDatetime
+    source_url: str = Field(min_length=1, max_length=2600)
+
+    @field_validator("amount")
+    @classmethod
+    def money_precision(cls, value):
+        return float(Decimal(str(value)).quantize(Decimal("0.01")))
+
+    @field_validator("source_url")
+    @classmethod
+    def product_source(cls, value):
+        try:
+            parsed = urlsplit(value)
+            if (
+                parsed.scheme not in {"http", "https"}
+                or not parsed.hostname
+                or parsed.username
+                or parsed.password
+                or parsed.port not in {None, 80, 443}
+            ):
+                raise ValueError
+        except ValueError:
+            raise ValueError("参考价格来源必须是有效的商品网址。") from None
+        return value
 
 
 class ItemInput(StrictModel):

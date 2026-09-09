@@ -29,6 +29,12 @@ const hostSettings = (): AISettings => ({
   configured: true,
   assistant_connected: false,
   assistant_connection: { status: "disconnected" },
+  automatic_vision: {
+    supported: true,
+    enabled: false,
+    ready: false,
+    reason: "尚未开启上传自动识别。",
+  },
 });
 const connectedSettings = (): AISettings => ({
   ...hostSettings(),
@@ -123,6 +129,67 @@ beforeEach(() => {
 afterEach(() => vi.useRealTimers());
 
 describe("verified assistant connection", () => {
+  it("enables Codex upload recognition only after the verified user switches it on", async () => {
+    const current = connectedSettings();
+    serverSettings = current;
+    mocks.send.mockResolvedValue({
+      ...current,
+      capabilities: { vision: true, text: false },
+      automatic_vision: {
+        supported: true,
+        enabled: true,
+        ready: true,
+        reason: "",
+      },
+    });
+    mount(current);
+    const toggle = screen.getByRole("switch", {
+      name: "上传后用 Codex 自动识别",
+    });
+    expect(toggle).not.toBeChecked();
+    expect(toggle).toBeEnabled();
+    expect(
+      screen.getByText(/会将上传的衣物照片发送给 Codex/),
+    ).toBeInTheDocument();
+    expect(mocks.send).not.toHaveBeenCalled();
+    fireEvent.click(toggle);
+    await waitFor(() =>
+      expect(mocks.send).toHaveBeenCalledWith(
+        "/ai/automatic-vision",
+        { enabled: true },
+        "PUT",
+      ),
+    );
+    expect(toggle).toBeChecked();
+    expect(
+      screen.getByText("已准备好，上传照片后会自动填写衣物信息。"),
+    ).toBeInTheDocument();
+    expect(mocks.api.mock.calls.some(([path]) => path === "/ai/test")).toBe(
+      false,
+    );
+  });
+  it("keeps automatic recognition disabled until the Codex connection is verified", async () => {
+    mount(hostSettings());
+    expect(
+      screen.getByRole("switch", { name: "上传后用 Codex 自动识别" }),
+    ).toBeDisabled();
+    await act(async () => {});
+    expect(mocks.send).not.toHaveBeenCalled();
+  });
+  it("does not show automatic recognition as enabled after a rejected setting change", async () => {
+    const current = connectedSettings();
+    mocks.send.mockRejectedValue(new Error("本机 Codex 尚未登录。"));
+    mount(current);
+    fireEvent.click(
+      screen.getByRole("switch", { name: "上传后用 Codex 自动识别" }),
+    );
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "本机 Codex 尚未登录。",
+    );
+    expect(
+      screen.getByRole("switch", { name: "上传后用 Codex 自动识别" }),
+    ).not.toBeChecked();
+  });
   it("installs only on request and saves the chosen host before installation", async () => {
     mount();
     expect(mocks.api).not.toHaveBeenCalled();

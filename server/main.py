@@ -30,6 +30,7 @@ from .models import (
     OutfitInput,
     PlanInput,
     RecommendationInput,
+    ReferencePrice,
     SettingsPatch,
     SessionInput,
     TripInput,
@@ -44,6 +45,7 @@ def create_app(data_dir: Path | str | None = None) -> FastAPI:
     from .images import ImagePipeline
     from .backup import router as backup_router
     from .assistant_setup import router as assistant_setup_router
+    from .product_import import PreviewCache, router as product_import_router
 
     @asynccontextmanager
     async def lifespan(application):
@@ -59,6 +61,7 @@ def create_app(data_dir: Path | str | None = None) -> FastAPI:
         )
     )
     application.state.images = ImagePipeline(application.state.store.root / "images")
+    application.state.product_previews = PreviewCache()
     application.state.bootstrap_code = bootstrap_key(application.state.store)
     launch_nonce = os.environ.get("YIJIAN_LAUNCH_NONCE")
     launch_instance = hashlib.sha256(launch_nonce.encode()).hexdigest() if launch_nonce else None
@@ -162,7 +165,7 @@ def create_app(data_dir: Path | str | None = None) -> FastAPI:
             raise HTTPException(404, "图片不存在。")
         return FileResponse(image, media_type="image/jpeg")
 
-    def create_item(body: dict, picture: dict | None = None):
+    def create_item(body: dict, picture: dict | None = None, *, reference_price: dict | None = None):
         item = {
             **body,
             "id": identifier(),
@@ -173,6 +176,7 @@ def create_app(data_dir: Path | str | None = None) -> FastAPI:
             "background_status": "skipped",
             "ai_status": "idle",
             "ai_error": None,
+            "reference_price": reference_price,
         }
         if picture:
             item.update({key: picture.get(key) for key in ("image_url", "original_url", "background_status")})
@@ -189,52 +193,115 @@ def create_app(data_dir: Path | str | None = None) -> FastAPI:
     def add_item(body: ItemInput):
         return create_item(body.model_dump(mode="json"))
 
+    def discard_picture(picture: dict):
+        for url in {picture.get("image_url"), picture.get("original_url")} - {None}:
+            application.state.images.resolve(url.removeprefix("/api/images/")).unlink(missing_ok=True)
+
+    async def import_photo(
+        content: bytes,
+        name: str,
+        remove_background: bool,
+        auto_analyze: bool,
+        background_tasks: BackgroundTasks,
+        *,
+        access: str,
+        notes: str = "",
+        reference_price: dict | None = None,
+    ):
+        reference = (
+            ReferencePrice.model_validate(reference_price).model_dump(mode="json")
+            if reference_price is not None
+            else None
+        )
+        if len(application.state.store.read()["items"]) >= 2000:
+            raise HTTPException(409, "衣橱已达到 2,000 件容量，其余图片未导入。")
+        if len(content) > 16 * 1024 * 1024:
+            raise HTTPException(422, "一张超过 16 MB 的图片未导入。")
+        preparation = asyncio.create_task(
+            asyncio.to_thread(application.state.images.prepare, content, remove_background)
+        )
+        try:
+            picture = await asyncio.shield(preparation)
+        except asyncio.CancelledError:
+            # The image worker cannot be cancelled; track it until its uncommitted files can be removed.
+            while not preparation.done():
+                try:
+                    await asyncio.shield(preparation)
+                except asyncio.CancelledError:
+                    continue
+                except (ValueError, OSError):
+                    break
+            if not preparation.cancelled() and preparation.exception() is None:
+                discard_picture(preparation.result())
+            raise
+        except (ValueError, OSError):
+            raise HTTPException(422, "一张图片无法读取，请使用常见的图片格式。") from None
+        raw_name = name.strip()[:120] or "新衣物"
+        try:
+            item = create_item(
+                ItemInput(name=raw_name, notes=notes).model_dump(mode="json"),
+                picture,
+                reference_price=reference,
+            )
+        except HTTPException:
+            discard_picture(picture)
+            raise
+        warnings = []
+        if picture.get("background_status") == "failed":
+            warnings.append(f"{raw_name}的去背景未完成，已保留原图。")
+        provider = ai._configuration(application.state.store.read())["provider"]
+        if (
+            auto_analyze
+            and (access == "browser" or provider not in ai.HOSTS)
+            and ai.capabilities(application.state.store).get("vision")
+        ):
+            try:
+                ai.queue_analysis(
+                    application.state.store,
+                    application.state.images,
+                    item["id"],
+                    background_tasks,
+                    access=access,
+                )
+                item["ai_status"] = "processing"
+            except (ai.ModelConnectionError, HTTPException):
+                warnings.append("AI 设置刚刚发生变化，图片已保存，可稍后重新识别。")
+        return item, warnings
+
+    application.state.import_photo = import_photo
+
     @application.post("/api/items/upload", dependencies=authorized)
     async def upload(
         background_tasks: BackgroundTasks,
         files: list[UploadFile] = File(...),
         remove_background: bool = Form(True),
+        auto_analyze: bool = Form(True),
+        access: str = Depends(require_access),
     ):
         if len(files) > 20:
             raise HTTPException(422, "每次最多上传 20 张图片。")
         items, warnings = [], []
         for photo in files:
-            if len(application.state.store.read()["items"]) >= 2000:
-                warnings.append("衣橱已达到 2,000 件容量，其余图片未导入。")
-                break
             content = await photo.read(16 * 1024 * 1024 + 1)
             await photo.close()
-            if len(content) > 16 * 1024 * 1024:
-                warnings.append("一张超过 16 MB 的图片未导入。")
-                continue
             try:
-                picture = await asyncio.to_thread(
-                    application.state.images.prepare, content, remove_background
+                item, messages = await import_photo(
+                    content,
+                    Path(photo.filename or "新衣物").stem,
+                    remove_background,
+                    auto_analyze,
+                    background_tasks,
+                    access=access,
                 )
-            except (ValueError, OSError):
-                warnings.append("一张图片无法读取，请使用常见的图片格式。")
-                continue
-            raw_name = Path(photo.filename or "新衣物").stem.strip()[:120] or "新衣物"
-            try:
-                item = create_item(ItemInput(name=raw_name).model_dump(mode="json"), picture)
             except HTTPException as error:
-                if error.status_code != 409:
+                if error.status_code not in {409, 422}:
                     raise
-                for url in {picture.get("image_url"), picture.get("original_url")} - {None}:
-                    application.state.images.resolve(url.removeprefix("/api/images/")).unlink(missing_ok=True)
-                warnings.append("衣橱已达到容量，其余图片未导入。")
-                break
-            if picture.get("background_status") == "failed":
-                warnings.append(f"{raw_name}的去背景未完成，已保留原图。")
+                warnings.append(error.detail)
+                if error.status_code == 409:
+                    break
+                continue
             items.append(item)
-            if ai.capabilities(application.state.store).get("vision"):
-                try:
-                    ai.queue_analysis(
-                        application.state.store, application.state.images, item["id"], background_tasks
-                    )
-                    item["ai_status"] = "processing"
-                except (ai.ModelConnectionError, HTTPException):
-                    warnings.append("AI 设置刚刚发生变化，图片已保存，可稍后重新识别。")
+            warnings.extend(messages)
         if not items:
             raise HTTPException(422, warnings[0] if warnings else "请选择图片。")
         return {"items": items, "warnings": warnings}
@@ -504,6 +571,7 @@ def create_app(data_dir: Path | str | None = None) -> FastAPI:
     application.include_router(ai.router)
     application.include_router(assistant_setup_router)
     application.include_router(backup_router)
+    application.include_router(product_import_router)
     build_dir = Path(__file__).resolve().parents[1] / "web" / "dist"
 
     @application.get("/{path:path}")

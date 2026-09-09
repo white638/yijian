@@ -56,6 +56,24 @@ export const translateValue = (value: string) =>
   seasonNames[value.toLowerCase()] ||
   occasions[value] ||
   value;
+export interface ReferencePrice {
+  amount: number;
+  currency:
+    | "CNY"
+    | "USD"
+    | "EUR"
+    | "GBP"
+    | "JPY"
+    | "KRW"
+    | "HKD"
+    | "TWD"
+    | "CAD"
+    | "AUD"
+    | "CHF";
+  label: "页面售价" | "起售价" | "发售价格";
+  observed_at: string;
+  source_url: string;
+}
 export interface Item {
   id: string;
   name: string;
@@ -69,6 +87,7 @@ export interface Item {
   favorite: boolean;
   price: string | null;
   currency: string | null;
+  reference_price?: ReferencePrice | null;
   brand: string;
   closet: string;
   notes: string;
@@ -142,6 +161,12 @@ export interface AISettings {
   capabilities: { text: boolean; vision: boolean };
   configured: boolean;
   assistant_connected?: boolean;
+  automatic_vision?: {
+    supported: boolean;
+    enabled: boolean;
+    ready: boolean;
+    reason: string;
+  };
   assistant_connection?: {
     status: "disconnected" | "pending" | "connected";
     client_name?: string;

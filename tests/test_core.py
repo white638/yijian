@@ -324,7 +324,7 @@ def test_partial_capacity_upload_keeps_success_and_runs_background_tasks(client,
     monkeypatch.setattr(
         ai,
         "queue_analysis",
-        lambda store, images, item_id, background: background.add_task(analyzed.append, item_id),
+        lambda store, images, item_id, background, **kwargs: background.add_task(analyzed.append, item_id),
     )
     result = client.post(
         "/api/items/upload",

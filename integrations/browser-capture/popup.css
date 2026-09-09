@@ -1,0 +1,102 @@
+* {
+  box-sizing: border-box;
+}
+body {
+  width: 360px;
+  margin: 0;
+  background: #fff;
+  color: #222226;
+  font:
+    14px/1.6 system-ui,
+    sans-serif;
+}
+main {
+  padding: 20px;
+}
+h1 {
+  font-size: 20px;
+  margin: 0;
+}
+h2 {
+  font-size: 15px;
+  overflow-wrap: anywhere;
+}
+p {
+  color: #6b6b78;
+}
+button {
+  width: 100%;
+  min-height: 44px;
+  border: 0;
+  border-radius: 12px;
+  padding: 10px 14px;
+  background: #222226;
+  color: white;
+  font: inherit;
+  cursor: pointer;
+}
+button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+button:focus-visible,
+.candidate:focus-within {
+  outline: 3px solid #757aaa;
+  outline-offset: 2px;
+}
+fieldset {
+  min-width: 0;
+  border: 0;
+  padding: 0;
+  margin: 12px 0;
+}
+legend {
+  font-size: 13px;
+  padding: 0 0 8px;
+}
+#choices {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+.candidate {
+  position: relative;
+  padding: 7px;
+  border: 2px solid #eaeaf2;
+  border-radius: 12px;
+  text-align: center;
+  cursor: pointer;
+}
+.candidate.selected {
+  border-color: #222226;
+}
+.candidate input {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  margin: 0;
+  accent-color: #222226;
+}
+.candidate img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: contain;
+  background: #f4f4f8;
+  border-radius: 7px;
+}
+.candidate span,
+.help {
+  font-size: 12px;
+}
+#error {
+  color: #a22d3c;
+}
+#status:empty,
+#error:empty,
+h2:empty {
+  display: none;
+}

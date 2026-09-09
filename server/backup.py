@@ -19,7 +19,7 @@ from PIL import Image
 
 from .auth import require_access
 from .catalog import public_data, timestamp
-from .models import ItemInput, OutfitInput, PlanInput, SettingsPatch, TripInput
+from .models import ItemInput, OutfitInput, PlanInput, ReferencePrice, SettingsPatch, TripInput
 from .store import initial_state
 
 router = APIRouter(prefix="/api", dependencies=[Depends(require_access)])
@@ -113,6 +113,11 @@ def validate_data(data):
             {key: value for key, value in item.items() if key in ItemInput.model_fields}
         ).model_dump(mode="json")
         item.update(base)
+        item["reference_price"] = (
+            ReferencePrice.model_validate(item["reference_price"]).model_dump(mode="json")
+            if item.get("reference_price") is not None
+            else None
+        )
         item["prior_wear_count"] = int(item.get("prior_wear_count", 0))
         if not 0 <= item["prior_wear_count"] <= 100000:
             raise ValueError("穿着次数无效")

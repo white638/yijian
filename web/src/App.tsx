@@ -87,11 +87,7 @@ export default function App() {
       reducedMotion.removeEventListener("change", stop);
     };
   }, [route, state?.settings.onboarded]);
-  const analyzing = state?.items.some(
-    (i) =>
-      i.ai_status === "processing" ||
-      (!i.confirmed && state.ai.capabilities.vision),
-  );
+  const analyzing = state?.items.some((i) => i.ai_status === "processing");
   useEffect(() => {
     if (!analyzing) return;
     const timer = setInterval(() => refresh().catch(() => {}), 4000);

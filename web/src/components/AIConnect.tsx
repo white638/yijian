@@ -90,6 +90,7 @@ function AssistantConnection({
       : verificationBaseline === null ||
         snapshot.assistant_connection?.verified_at !== verificationBaseline);
   const connection = snapshot.assistant_connection;
+  const automatic = snapshot.automatic_vision;
   const expired =
     connection?.expires_at && connection.expires_at * 1000 <= Date.now();
   const requestText = `使用衣间技能连接 ${location.origin}，发起配对，验证连接后读取衣物数量。`;
@@ -122,10 +123,10 @@ function AssistantConnection({
     if (!connection?.expires_at) return;
     const remaining = connection.expires_at * 1000 - Date.now();
     if (remaining <= 0 || !Number.isFinite(remaining)) return;
-    const timer = setTimeout(
-      () => setClock((value) => value + 1),
-      remaining + 50,
-    );
+    const timer = setTimeout(() => {
+      setClock((value) => value + 1);
+      void refreshRef.current().catch(() => {});
+    }, remaining + 50);
     return () => clearTimeout(timer);
   }, [connection?.expires_at]);
   useEffect(() => {
@@ -316,12 +317,39 @@ function AssistantConnection({
       setBusy("");
     }
   }
+  async function toggleAutomatic(enabled: boolean) {
+    if (busy || !automatic?.supported || !verified) return;
+    setBusy("automatic");
+    setError("");
+    try {
+      const next = await send<AISettings>(
+        "/ai/automatic-vision",
+        { enabled },
+        "PUT",
+      );
+      setSnapshot(next);
+      await refresh();
+      notify(
+        next.automatic_vision?.enabled
+          ? "上传后自动识别已开启。"
+          : "上传后自动识别已关闭。",
+      );
+    } catch (e) {
+      setError(failure(e));
+    } finally {
+      setBusy("");
+    }
+  }
   return (
     <div className="soft-panel assistant-connection">
       <div>
         <h3>在 {names[provider]} 中使用衣柜</h3>
         <p className="muted small">
-          识别和搭配使用助手本身的模型能力和额度。网页可以继续管理衣物、去背景和生成规则搭配。
+          {provider === "codex" && automatic?.ready
+            ? "上传后会自动用 Codex 识别衣物信息。需要搭配帮助时，可在 Codex 中使用衣间技能。"
+            : provider === "codex"
+              ? "完成连接后，可开启上传自动识别。也可以在 Codex 中使用衣间技能识别和搭配。"
+              : "请在 Claude Code 中使用衣间技能识别和搭配。网页可以管理衣物、去背景和生成规则搭配。"}
         </p>
       </div>
       {verified && (
@@ -345,6 +373,34 @@ function AssistantConnection({
             </div>
           </dl>
           <small className="muted">此处显示最近一次验证结果。</small>
+        </div>
+      )}
+      {provider === "codex" && (
+        <div className="assistant-request">
+          <label className="check-row">
+            <input
+              type="checkbox"
+              role="switch"
+              checked={Boolean(automatic?.enabled)}
+              disabled={!!busy || !automatic?.supported || !verified}
+              onChange={(e) => toggleAutomatic(e.target.checked)}
+            />
+            <span>上传后用 Codex 自动识别</span>
+          </label>
+          <p className="small muted">
+            开启后，会将上传的衣物照片发送给
+            Codex，并使用当前账号的模型额度。每次上传时仍可取消自动识别。
+          </p>
+          <p className="small muted" role="status">
+            {busy === "automatic"
+              ? "正在保存自动识别设置…"
+              : automatic?.reason ||
+                (!verified
+                  ? "请先完成 Codex 连接并验证。"
+                  : automatic?.ready
+                    ? "已准备好，上传照片后会自动填写衣物信息。"
+                    : "开启后可自动识别上传的衣物照片。")}
+          </p>
         </div>
       )}
       <ol className="assistant-steps">

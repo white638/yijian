@@ -7,6 +7,8 @@ from urllib.parse import urlsplit, urlunsplit
 
 import httpx
 
+from .public_dns import PublicDNSError, resolve_fake_ip
+
 
 class ModelConnectionError(Exception):
     def __init__(self, message: str):
@@ -80,6 +82,10 @@ async def _destination(base_url: str) -> tuple[httpx.URL, str, str]:
         raise ModelConnectionError("无法解析模型接口地址，请检查地址和网络。") from None
     if not results:
         raise ModelConnectionError("无法解析模型接口地址，请检查地址和网络。")
+    try:
+        results = await resolve_fake_ip(host, results)
+    except PublicDNSError:
+        raise ModelConnectionError("代理网络的域名解析未完成，请稍后重试或检查网络设置。") from None
     for result in results:
         _allow_address(result[4][0])
         if _address(result[4][0]).is_loopback:

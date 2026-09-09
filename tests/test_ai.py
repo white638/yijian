@@ -14,7 +14,7 @@ import pytest
 from fastapi import BackgroundTasks, FastAPI
 from PIL import Image
 
-from server import ai, ai_network
+from server import ai, ai_network, public_dns
 from server.auth import digest
 from server.images import ImagePipeline
 from server.store import Store
@@ -475,6 +475,54 @@ async def test_network_normalizes_idna_and_allows_only_explicit_http_loopback():
 
 def dns_result(address):
     return [(socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", (address, 443))]
+
+
+async def test_cloud_model_resolves_proxy_fake_ip_then_pins_public_destination(monkeypatch):
+    monkeypatch.setattr(
+        asyncio.get_running_loop(), "getaddrinfo", AsyncMock(return_value=dns_result("198.18.0.7"))
+    )
+    query = AsyncMock(side_effect=lambda hostname, kind: ["8.8.8.8"] if kind == 1 else [])
+    monkeypatch.setattr(public_dns, "_query", query)
+    destination, authority, hostname = await ai_network._destination("https://models.example/v1")
+    assert destination.host == "8.8.8.8" and destination.path == "/v1/chat/completions"
+    assert authority == hostname == "models.example"
+    assert query.await_count == 2
+
+
+async def test_proxy_dns_failure_returns_safe_model_error(monkeypatch):
+    monkeypatch.setattr(
+        asyncio.get_running_loop(), "getaddrinfo", AsyncMock(return_value=dns_result("198.18.0.7"))
+    )
+    monkeypatch.setattr(
+        public_dns, "_query", AsyncMock(side_effect=public_dns.PublicDNSError("private resolver details"))
+    )
+    with pytest.raises(ai_network.ModelConnectionError, match="代理网络") as error:
+        await ai_network._destination("https://models.example/v1")
+    assert "private" not in str(error.value)
+
+
+async def test_local_ollama_does_not_query_public_dns(monkeypatch):
+    monkeypatch.setattr(
+        asyncio.get_running_loop(), "getaddrinfo", AsyncMock(return_value=dns_result("127.0.0.1"))
+    )
+    query = AsyncMock()
+    monkeypatch.setattr(public_dns, "_query", query)
+    destination, _, _ = await ai_network._destination("http://localhost:11434/v1")
+    assert destination.host == "127.0.0.1"
+    query.assert_not_awaited()
+
+
+async def test_proxy_fake_ip_mixed_with_private_address_is_rejected(monkeypatch):
+    monkeypatch.setattr(
+        asyncio.get_running_loop(),
+        "getaddrinfo",
+        AsyncMock(return_value=dns_result("198.18.0.7") + dns_result("169.254.169.254")),
+    )
+    query = AsyncMock()
+    monkeypatch.setattr(public_dns, "_query", query)
+    with pytest.raises(ai_network.ModelConnectionError):
+        await ai_network._destination("https://models.example/v1")
+    query.assert_not_awaited()
 
 
 async def test_network_checks_every_resolved_address(monkeypatch):

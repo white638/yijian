@@ -1,0 +1,11 @@
+{
+  "manifest_version": 3,
+  "name": "衣间 · 商品图片采集",
+  "version": "0.1.0",
+  "description": "主动选择当前商品页中可见的衣物图片，复制到衣间导入。",
+  "permissions": ["activeTab", "scripting", "clipboardWrite"],
+  "action": {
+    "default_title": "采集衣物图片到衣间",
+    "default_popup": "popup.html"
+  }
+}
