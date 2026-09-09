@@ -4,7 +4,7 @@
   background: #fff;
   font-synthesis: none;
   --ink: #222226;
-  --muted: #92929d;
+  --muted: #6b6b78;
   --soft: #f4f4f8;
   --line: #e9e9ef;
   --accent: #7377c1;
@@ -75,7 +75,7 @@ small,
   line-height: 1.65;
 }
 .muted {
-  color: #85858f;
+  color: var(--muted);
 }
 .center {
   text-align: center;
@@ -105,12 +105,12 @@ small,
 .eyebrow {
   font-size: 11px;
   letter-spacing: 0.06em;
-  color: #91919c;
+  color: var(--muted);
   margin-bottom: 6px;
 }
 .tiny-label {
   font-size: 10px;
-  color: #93939f;
+  color: var(--muted);
   letter-spacing: 0.06em;
 }
 .page {
@@ -230,7 +230,7 @@ small,
 }
 .field small {
   font-weight: 400;
-  color: #888893;
+  color: var(--muted);
 }
 input:not([type="checkbox"]),
 textarea,
@@ -259,7 +259,7 @@ summary:focus-visible {
 }
 input::placeholder,
 textarea::placeholder {
-  color: #acacb7;
+  color: var(--muted);
 }
 input[type="checkbox"] {
   width: 19px;
@@ -384,7 +384,7 @@ textarea {
   align-items: center;
   justify-content: center;
   gap: 5px;
-  color: #b3b3bc;
+  color: var(--muted);
   font-size: 11px;
 }
 .bottom-nav > button.active {
@@ -2081,7 +2081,7 @@ textarea {
     min-height: 50px;
     border-radius: 12px;
     padding: 12px 16px;
-    color: #a3a1ae;
+    color: var(--muted);
     font-size: 14px;
   }
   .desktop-sidebar nav > button.active,
