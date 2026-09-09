@@ -1,0 +1,7 @@
+{
+  "name": "yijian",
+  "version": "0.2.0",
+  "description": "连接衣间，识别衣物照片并保存现有衣物组成的搭配。",
+  "author": {"name": "Yijian contributors"},
+  "license": "MIT"
+}

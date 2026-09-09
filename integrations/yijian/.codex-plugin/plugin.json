@@ -1,0 +1,18 @@
+{
+  "name": "yijian",
+  "version": "0.2.0",
+  "description": "连接衣间，使用宿主助手分析衣物照片并保存搭配。",
+  "author": {
+    "name": "Yijian contributors"
+  },
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "衣间 · Yijian",
+    "shortDescription": "识别自己的衣物，保存真实可穿的搭配。",
+    "longDescription": "使用一次性连接码授权 Codex 读取衣橱图片、提交待确认标签，并将现有衣物组成搭配保存。",
+    "developerName": "Yijian contributors",
+    "category": "Productivity",
+    "capabilities": [],
+    "defaultPrompt": "帮我整理衣间中的衣物并搭配今天要穿的衣服。"
+  }
+}
