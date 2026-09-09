@@ -184,7 +184,7 @@ class PrepareTests(unittest.TestCase):
 
     def test_valid_cache_is_quick_and_offline(self):
         with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
+            root = Path(directory).resolve()
             prepared = root / "u2netp.onnx"
             prepared.write_bytes(b"ready")
             with (
