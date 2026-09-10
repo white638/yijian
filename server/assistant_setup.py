@@ -8,7 +8,7 @@ from typing import Literal
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
-from scripts.install_assistant import files, install
+from scripts.install_assistant import install, installed_matches
 
 from .auth import require_access
 
@@ -34,7 +34,7 @@ def browser_only(access: str = Depends(require_access)):
 
 def installation(provider: Provider) -> dict:
     target = target_for(provider)
-    installed = target.is_dir() and files(SOURCE) == files(target)
+    installed = installed_matches(SOURCE, target)
     return {"installed": installed, "provider": provider, "path": str(target)}
 
 
@@ -42,7 +42,7 @@ def installation(provider: Provider) -> dict:
 def inspect_installation(provider: Provider):
     try:
         return installation(provider)
-    except OSError:
+    except (OSError, ValueError):
         raise HTTPException(409, "无法检查技能目录，请确认衣间由当前系统用户启动。") from None
 
 

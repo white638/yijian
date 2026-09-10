@@ -5,7 +5,9 @@ description: 在用户要求连接衣间、整理衣橱、识别衣物、处理�
 
 # 衣间助手
 
-使用当前 Codex 或 Claude Code 会话的分析与视觉能力；图片美化使用当前 Codex 的内置生图能力。CLI 只读写衣橱；它没有模型 API 调用。先读取本 skill 同目录的 `scripts/yijian.py` 确认可用命令，再使用当前环境的 Python 3.11 或更高版本运行它。以下 `$CLI` 表示这个脚本的绝对路径；根据实际 shell 替换。
+<!-- yijian-command:start -->
+使用当前 Codex 或 Claude Code 会话的分析与视觉能力；图片美化使用当前 Codex 的内置生图能力。CLI 只读写衣橱；它没有模型 API 调用。源码安装使用本 skill 同目录的 `scripts/yijian.py`：先读取脚本确认命令，再使用当前环境的 Python 3.11 或更高版本运行。以下 `$CLI` 表示这个脚本的绝对路径；根据实际 shell 替换。桌面应用安装的技能使用随程序提供的助手工具，安装器会填写本机命令入口。
+<!-- yijian-command:end -->
 
 ## 连接
 

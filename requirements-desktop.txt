@@ -1,0 +1,4 @@
+-r requirements.txt
+rembg[cpu]==2.0.81
+pywebview==6.2.1
+pyinstaller==6.22.2

@@ -1,0 +1,362 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="description"
+      content="衣间是一款免费开源的 Windows 个人衣橱应用。整理服装与配饰，创建自己的穿搭，记录每一次穿着。数据留在本机，AI 由你选择。"
+    />
+    <meta name="theme-color" content="#f8f9fc" />
+    <title>衣间 · 用自己的衣服，搭配今天</title>
+    <link rel="icon" href="assets/outfit.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="styles.css" />
+    <script src="release.js" defer></script>
+    <script src="app.js" defer></script>
+  </head>
+  <body id="top">
+    <a class="skip-link" href="#main">跳转到正文</a>
+    <header class="site-header wrap">
+      <a href="#top" class="brand" aria-label="衣间首页"
+        ><span class="brand-symbol" aria-hidden="true">间</span>衣间<span
+          class="brand-latin"
+          >YIJIAN</span
+        ></a
+      >
+      <nav aria-label="主导航">
+        <a href="#features">日常功能</a><a href="#ai">AI 与数据</a
+        ><a href="https://github.com/white638/yijian/blob/main/docs/desktop.md"
+          >使用说明</a
+        >
+        <a class="nav-github" href="https://github.com/white638/yijian"
+          >GitHub <span aria-hidden="true">↗</span></a
+        >
+      </nav>
+    </header>
+
+    <main id="main">
+      <section class="hero wrap" aria-labelledby="hero-title">
+        <div class="hero-copy">
+          <p class="eyebrow"><span></span> 你的个人衣橱 · 免费开源</p>
+          <h1 id="hero-title">
+            用自己的衣服，<br />搭配<span class="today"
+              >今天<svg viewBox="0 0 198 16" aria-hidden="true">
+                <path d="M4 10 Q92 -2 193 7" /></svg></span
+            >。
+          </h1>
+          <p class="hero-description">
+            给每件衣服一个位置，给日常多一点灵感。<br
+              class="desktop-break"
+            />在自己的电脑上，整理衣柜、组合穿搭、记录穿着。
+          </p>
+          <div class="hero-actions">
+            <a class="button button-primary" href="#download"
+              ><svg viewBox="0 0 24 24" aria-hidden="true">
+                <path
+                  d="M3 5.5 10.5 4.5v7H3Zm9-1.2L21 3v8.5h-9ZM3 13h7.5v7L3 19Zm9 0h9v8l-9-1.2Z"
+                /></svg
+              >获取 Windows 版<span aria-hidden="true">↓</span></a
+            ><a class="text-link" href="#features"
+              >看看能做什么 <span aria-hidden="true">↗</span></a
+            >
+          </div>
+          <p class="hero-note">无需衣间账号 · 核心功能无需 AI 密钥</p>
+        </div>
+        <div
+          class="hero-art"
+          role="img"
+          aria-label="衣服、日历和旅行箱的彩色立体插画，代表衣柜整理、日常穿搭与旅行规划"
+        >
+          <div class="art-orbit orbit-one"></div>
+          <div class="art-orbit orbit-two"></div>
+          <div class="art-date">
+            <span class="date-dot"></span>留一点时间，给自己。
+          </div>
+          <div class="art-main">
+            <img src="assets/outfit.svg" alt="" width="128" height="128" /><span
+              >我的日常衣橱</span
+            >
+          </div>
+          <div class="art-small art-calendar">
+            <img
+              src="assets/calendar.svg"
+              alt=""
+              width="128"
+              height="128"
+            /><span>计划每一天</span>
+          </div>
+          <div class="art-small art-packing">
+            <img
+              src="assets/packing.svg"
+              alt=""
+              width="128"
+              height="128"
+            /><span>也为下一次出发</span>
+          </div>
+          <span class="art-spark spark-one" aria-hidden="true">✦</span
+          ><span class="art-spark spark-two" aria-hidden="true">✧</span>
+        </div>
+      </section>
+
+      <div class="principles wrap" aria-label="产品特点">
+        <span>照片与记录留在本机</span><span>服装与配饰一起搭</span
+        ><span>AI 接入可以跳过</span><span>MIT 许可，自由使用</span>
+      </div>
+
+      <section
+        class="features wrap section-space"
+        id="features"
+        aria-labelledby="features-title"
+      >
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">从衣柜，到生活</p>
+            <h2 id="features-title">让已有的衣服，<br />有更多穿法。</h2>
+          </div>
+          <p>
+            少一点翻找，多一点搭配的乐趣。<br />把整理、创作和记录放在同一个地方。
+          </p>
+        </div>
+        <div class="feature-grid">
+          <article class="feature feature-wardrobe">
+            <div class="feature-art">
+              <img src="assets/add.svg" width="128" height="128" alt="" />
+            </div>
+            <span class="feature-index">01 / 整理</span>
+            <h3>认识你的每件单品</h3>
+            <p>
+              上传照片，自动去背景。按类别、颜色和季节整理，也为包袋、帽子、首饰留出位置。
+            </p>
+            <a
+              href="https://github.com/white638/yijian/blob/main/docs/data-and-images.md"
+              >衣物与图片说明 <span aria-hidden="true">↗</span></a
+            >
+          </article>
+          <article class="feature feature-studio">
+            <div class="feature-art">
+              <img src="assets/outfit.svg" width="128" height="128" alt="" />
+            </div>
+            <span class="feature-index">02 / 搭配</span>
+            <h3>随手摆出新想法</h3>
+            <p>
+              自由拖动、旋转和缩放；按类别挑选或用拼图排版。也可以让规则推荐帮你换个组合。
+            </p>
+            <a
+              href="https://github.com/white638/yijian/blob/main/docs/outfit-studio.md"
+              >看看穿搭工具 <span aria-hidden="true">↗</span></a
+            >
+          </article>
+          <article class="feature feature-calendar">
+            <div class="feature-art">
+              <img src="assets/calendar.svg" width="128" height="128" alt="" />
+            </div>
+            <span class="feature-index">03 / 记录</span>
+            <h3>把喜欢的搭配穿出去</h3>
+            <p>
+              安排穿搭日历，记录真正穿过的日子。管理洗护状态，为下一次旅行准备打包清单。
+            </p>
+            <a
+              href="https://github.com/white638/yijian/blob/main/docs/desktop.md"
+              >开始日常使用 <span aria-hidden="true">↗</span></a
+            >
+          </article>
+        </div>
+        <div class="wear-note">
+          <img src="assets/stats.svg" width="68" height="68" alt="" />
+          <div>
+            <h3>喜欢一件衣服，也了解它的使用。</h3>
+            <p>穿着次数、衣柜花费、单次穿着成本，来自自己的真实记录。</p>
+          </div>
+          <span class="wear-line" aria-hidden="true"></span
+          ><span class="wear-label">穿过，再记一次。</span>
+        </div>
+      </section>
+
+      <section
+        class="ai-section section-space"
+        id="ai"
+        aria-labelledby="ai-title"
+      >
+        <div class="wrap">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">按你的需要连接</p>
+              <h2 id="ai-title">工具直接用，<br />AI 由你选择。</h2>
+            </div>
+            <img
+              class="assistant-art"
+              src="assets/assistant.svg"
+              width="128"
+              height="128"
+              alt=""
+            />
+          </div>
+          <div class="capability-columns">
+            <div class="capability-free">
+              <span class="small-label">安装后可用</span>
+              <h3>先从自己的衣柜开始</h3>
+              <ul>
+                <li>衣物与配饰管理、手动搭配、规则推荐</li>
+                <li>穿搭日历、洗护记录、旅行打包</li>
+                <li>统计与 ZIP 备份、迁移到另一台电脑</li>
+                <li>自动去背景，无需额外填写模型密钥</li>
+              </ul>
+              <p class="fine-print">安装包自带去背景组件，照片在本机处理。</p>
+            </div>
+            <div class="capability-ai">
+              <span class="small-label">自行接入 AI 后</span>
+              <h3>让助手多做一些</h3>
+              <ul>
+                <li>识别衣物属性，核对后保存</li>
+                <li>根据自己的衣服推荐搭配、对话找灵感</li>
+                <li>单独启用图片美化，对比预览后再采用</li>
+              </ul>
+              <p class="ai-paths">
+                自己的 API <span>/</span> 已有本地模型
+                <span>/</span> 已连接的助手
+              </p>
+              <p class="fine-print">
+                衣间不提供平台 AI 额度。API
+                由服务商计费，本地模型使用自己的设备，Codex / Claude Code
+                遵循宿主的能力与额度规则。各接入方式支持的操作有所不同。
+              </p>
+              <a
+                class="text-link"
+                href="https://github.com/white638/yijian/blob/main/docs/assistant-mode.md"
+                >了解接入方式 <span aria-hidden="true">↗</span></a
+              >
+            </div>
+          </div>
+          <div class="privacy-row">
+            <div class="privacy-mark" aria-hidden="true">
+              <svg viewBox="0 0 32 32">
+                <rect x="7" y="14" width="18" height="14" rx="4" />
+                <path d="M11 14V9a5 5 0 0 1 10 0v5M16 19v4" />
+              </svg>
+            </div>
+            <div>
+              <h3>衣柜留在自己的电脑里</h3>
+              <p>
+                无需衣间账号，记录和照片在本机保存，支持完整备份。主动使用外部
+                AI 时，相关任务内容才会发给你选择的服务。规范化原图始终保留。
+              </p>
+            </div>
+            <a
+              href="https://github.com/white638/yijian/blob/main/docs/data-and-images.md"
+              >数据说明 <span aria-hidden="true">↗</span></a
+            >
+          </div>
+        </div>
+      </section>
+
+      <section
+        class="faq-section wrap section-space"
+        aria-labelledby="faq-title"
+      >
+        <div>
+          <p class="eyebrow">你可能还想知道</p>
+          <h2 id="faq-title">几个实际问题</h2>
+          <a class="text-link" href="https://github.com/white638/yijian/issues"
+            >反馈与建议 <span aria-hidden="true">↗</span></a
+          >
+        </div>
+        <div class="faq-list">
+          <details>
+            <summary>
+              现在可以下载 Windows 安装包吗？<span aria-hidden="true">+</span>
+            </summary>
+            <div>
+              <p id="release-faq">
+                当前提供 v0.3.0 桌面预览版，支持 Windows 10 22H2 / Windows 11
+                x64。 下载入口指向 GitHub
+                Releases；安装包未签名，系统要求与校验信息见发布说明。
+              </p>
+              <a href="https://github.com/white638/yijian/releases"
+                >查看版本说明 ↗</a
+              >
+            </div>
+          </details>
+          <details>
+            <summary>
+              需要先配置 AI 才能用吗？<span aria-hidden="true">+</span>
+            </summary>
+            <div>
+              <p>
+                不需要。首次引导可以跳过，衣柜管理、手动与规则搭配、记录、统计和备份都可使用。自动去背景也无需额外配置
+                AI 服务。需要识别、模型推荐或图片美化时，再连接适合的服务。
+              </p>
+            </div>
+          </details>
+          <details>
+            <summary>
+              能在手机上拍照录入或自动同步吗？<span aria-hidden="true">+</span>
+            </summary>
+            <div>
+              <p>
+                当前优先提供 Windows
+                本机体验。手机照片可先传到电脑再导入；当前不提供手机直连或跨设备自动同步。手机便捷录入属于后续方向，尚无发布日期。
+              </p>
+            </div>
+          </details>
+          <details>
+            <summary>开源意味着什么？<span aria-hidden="true">+</span></summary>
+            <div>
+              <p>
+                衣间源码采用 MIT
+                许可证。你可以免费使用、查看和修改，也可以按许可证要求分发。第三方软件和图片模型适用各自许可。使用外部
+                AI 服务产生的费用由对应服务商结算。
+              </p>
+              <a href="https://github.com/white638/yijian/blob/main/LICENSE"
+                >阅读 MIT 许可证 ↗</a
+              >
+            </div>
+          </details>
+        </div>
+      </section>
+
+      <section
+        class="download-section wrap"
+        id="download"
+        aria-labelledby="download-title"
+      >
+        <div class="download-copy">
+          <p class="eyebrow">从一件衣服开始</p>
+          <h2 id="download-title">给你的衣柜，<br />留一间衣间。</h2>
+          <p id="release-status" role="status">
+            Windows x64 · v0.3.0 桌面预览版
+          </p>
+        </div>
+        <div class="download-actions">
+          <a
+            id="download-link"
+            class="button button-primary"
+            href="https://github.com/white638/yijian/releases"
+            >查看 Windows 版本 <span aria-hidden="true">↗</span></a
+          ><a
+            class="text-link"
+            href="https://github.com/white638/yijian#从源码启动"
+            >从源码启动 <span aria-hidden="true">↗</span></a
+          >
+          <p id="release-detail">
+            Windows 10 22H2 / Windows 11 x64。安装包未签名；缺少 WebView2
+            时首次安装需要联网。
+          </p>
+        </div>
+      </section>
+    </main>
+    <footer class="site-footer wrap">
+      <a href="#top" class="brand"
+        >衣间<span class="brand-latin">YIJIAN</span></a
+      >
+      <p>用自己的衣服，搭配今天。</p>
+      <nav aria-label="页脚导航">
+        <a href="https://github.com/white638/yijian">源码</a
+        ><a href="https://github.com/white638/yijian/blob/main/docs/desktop.md"
+          >文档</a
+        ><a href="https://github.com/white638/yijian/blob/main/LICENSE"
+          >MIT 许可</a
+        >
+      </nav>
+    </footer>
+  </body>
+</html>

@@ -13,6 +13,7 @@ import tempfile
 import weakref
 
 from .ai_network import ModelConnectionError
+from .process_environment import create_external_process
 
 TIMEOUT_SECONDS = 120
 MAX_RESULT_BYTES = 64 * 1024
@@ -174,7 +175,7 @@ async def describe(
             process = None
             reader = None
             try:
-                process = await asyncio.create_subprocess_exec(
+                process = await create_external_process(
                     *arguments(command, root),
                     cwd=root,
                     stdin=asyncio.subprocess.PIPE,

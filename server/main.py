@@ -54,7 +54,7 @@ def create_app(data_dir: Path | str | None = None) -> FastAPI:
         yield
 
     application = FastAPI(
-        title="衣间", version="0.2.0", lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None
+        title="衣间", version="0.3.0", lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None
     )
     application.state.store = Store(
         Path(
@@ -106,7 +106,7 @@ def create_app(data_dir: Path | str | None = None) -> FastAPI:
     def health(response: Response):
         if launch_instance is not None:
             response.headers["X-Yijian-Instance"] = launch_instance
-        return {"ok": True, "version": "0.2.0"}
+        return {"ok": True, "version": "0.3.0"}
 
     @application.post("/api/session")
     def session(request: Request, response: Response, body: SessionInput = SessionInput()):

@@ -4,7 +4,13 @@ Yijian application source is distributed under the MIT License. Its Python and J
 
 The application uses FastAPI, Uvicorn, Pydantic, Pillow, HTTPX, python-multipart, cryptography, React, Vite and a UI icon library. Dependency versions are recorded in the requirements files and `web/package-lock.json`.
 
-The account edition uses Hono, Better Auth, Kysely, Zod, fflate and the Node SQLite adapter. Their versions and transitive dependencies are recorded in `online/package-lock.json`; their respective license texts remain in the distributed packages. Cloudflare Workers, D1, R2 and Vercel are external hosting services with their own service terms and charges.
+The experimental self-hosted account code uses Hono, Better Auth, Kysely, Zod, fflate and the Node SQLite adapter. Their versions and transitive dependencies are recorded in `online/package-lock.json`.
+
+## Windows desktop distribution
+
+The desktop window uses [pywebview](https://github.com/r0x0r/pywebview) and Python.NET under their respective BSD and MIT licenses. PyInstaller uses GPL with a distribution exception permitting bundled applications to retain their own licenses. The installation program is built with Inno Setup. Installed Python, native and frontend dependency notices are included under `_internal/licenses`; Python source packages and exact versions are listed there as well.
+
+Microsoft WebView2 and the Visual C++ runtime are proprietary redistributable runtime components governed by Microsoft's licenses. The installer includes Microsoft's signed WebView2 bootstrapper and prepares the runtime when missing; that step requires an Internet connection. Application-local Visual C++ runtime DLLs are included for the Python and image libraries. These components are not covered by the application's MIT license.
 
 ## Image processing
 
