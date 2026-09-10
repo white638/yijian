@@ -44,6 +44,7 @@ export interface AuthOptions {
   inviteCode?: string;
   beforeDeleteUser?: (ownerId: string) => Promise<void>;
   clientAddress?: (request: Request) => string | null;
+  validateSchema?: boolean;
 }
 
 export function createAuth(options: AuthOptions): AuthService {
@@ -83,7 +84,7 @@ export function createAuth(options: AuthOptions): AuthService {
       cookiePrefix: "yijian",
       useSecureCookies: publicOrigin.startsWith("https:"),
       defaultCookieAttributes: { httpOnly: true, sameSite: "strict", path: "/" },
-      database: { generateId: () => crypto.randomUUID() },
+      database: { generateId: () => crypto.randomUUID(), validateSchema: options.validateSchema },
       ipAddress: { ipAddressHeaders: ["x-yijian-auth-ip"] },
     },
     rateLimit: {
