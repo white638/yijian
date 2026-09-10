@@ -17,7 +17,7 @@ MAX_BYTES = 20 * 1024 * 1024
 MAX_PIXELS = 25_000_000
 MAX_SIDE = 2400
 MODEL_SHA256 = "309c8469258dda742793dce0ebea8e6dd393174f89934733ecc8b14c76f4ddd8"
-_NAME = re.compile(r"[a-f0-9]{32}-(?:original|cutout)\.jpg\Z")
+_NAME = re.compile(r"[a-f0-9]{32}-(?:original|cutout|beautified)\.jpg\Z")
 _INFERENCE = threading.Lock()
 _SESSIONS = {}
 
@@ -145,6 +145,14 @@ class ImagePipeline:
         if remove_background:
             result.update(self.cutout(original_url))
         return result
+
+    def beautify(self, content: bytes) -> dict:
+        image = self._decode(content)
+        return {
+            "beautified_url": self._write(image, "beautified"),
+            "width": image.width,
+            "height": image.height,
+        }
 
     def _extract(self, image: Image.Image) -> Image.Image:
         from rembg import remove

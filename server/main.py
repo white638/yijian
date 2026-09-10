@@ -41,7 +41,7 @@ from .store import Store
 
 
 def create_app(data_dir: Path | str | None = None) -> FastAPI:
-    from . import ai
+    from . import ai, beautify
     from .images import ImagePipeline
     from .backup import router as backup_router
     from .assistant_setup import router as assistant_setup_router
@@ -50,6 +50,7 @@ def create_app(data_dir: Path | str | None = None) -> FastAPI:
     @asynccontextmanager
     async def lifespan(application):
         ai.recover_interrupted_jobs(application.state.store)
+        beautify.recover(application.state.store)
         yield
 
     application = FastAPI(
@@ -326,6 +327,7 @@ def create_app(data_dir: Path | str | None = None) -> FastAPI:
     def delete_item(item_id: str):
         def remove(state):
             item = find(state, "items", item_id)
+            cancelled_jobs = beautify.cancel_item_jobs(state, item_id)
             state["items"].remove(item)
             for collection in ("outfits", "plans"):
                 for entity in state[collection]:
@@ -341,9 +343,11 @@ def create_app(data_dir: Path | str | None = None) -> FastAPI:
             preferences["blocked_pairs"] = [
                 pair for pair in preferences["blocked_pairs"] if item_id not in pair
             ]
-            return {"ok": True}
+            return cancelled_jobs
 
-        return application.state.store.update(remove)
+        cancelled_jobs = application.state.store.update(remove)
+        beautify.stop_jobs(application.state.store, cancelled_jobs)
+        return {"ok": True}
 
     @application.post("/api/items/{item_id}/wash", dependencies=authorized)
     def wash_item(item_id: str):
@@ -579,6 +583,7 @@ def create_app(data_dir: Path | str | None = None) -> FastAPI:
         return application.state.store.update(save)
 
     application.include_router(ai.router)
+    application.include_router(beautify.router)
     application.include_router(assistant_setup_router)
     application.include_router(backup_router)
     application.include_router(product_import_router)

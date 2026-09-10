@@ -78,6 +78,17 @@ export interface Item {
   id: string;
   name: string;
   category: Category;
+  subcategory?: string;
+  materials?: string[];
+  pattern?: string;
+  styles?: string[];
+  fit?: string;
+  cut?: string;
+  neckline?: string;
+  sleeve_length?: string;
+  length?: string;
+  size?: string;
+  care_notes?: string;
   colors: string[];
   seasons: string[];
   occasions: string[];
@@ -96,6 +107,7 @@ export interface Item {
   updated_at: string;
   image_url: string | null;
   original_url: string | null;
+  beautified_url?: string | null;
   background_status: "completed" | "skipped" | "failed";
   ai_status: "idle" | "processing" | "review" | "error";
   ai_error: string | null;

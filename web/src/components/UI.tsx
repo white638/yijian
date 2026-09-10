@@ -18,6 +18,8 @@ import type { Item, OutfitLayout } from "../types";
 import { itemName } from "../types";
 import { placementStyle, syncLayout } from "../outfit-layout";
 import "../outfit-studio.css";
+const sheetStack: HTMLDialogElement[] = [];
+let sheetOriginalOverflow = "";
 export function Button({
   children,
   busy = false,
@@ -97,15 +99,71 @@ export function Sheet({
 }) {
   const ref = useRef<HTMLDialogElement>(null);
   const before = useRef<HTMLElement | null>(null);
+  const closeCurrent = useRef(() => {});
+  closeCurrent.current = () => {
+    if (!busy) onClose();
+  };
   useEffect(() => {
     before.current = document.activeElement as HTMLElement;
     const d = ref.current;
+    if (!d) return;
+    if (!sheetStack.length)
+      sheetOriginalOverflow = document.body.style.overflow;
+    sheetStack.push(d);
     d?.showModal();
-    const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
+    const keydown = (event: KeyboardEvent) => {
+      if (sheetStack.at(-1) !== d) return;
+      if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        closeCurrent.current();
+      } else if (event.key === "Tab") {
+        const focusable = [
+          ...d.querySelectorAll<HTMLElement>(
+            "button, a[href], input, select, textarea, summary, [tabindex]",
+          ),
+        ].filter(
+          (element) =>
+            element.tabIndex >= 0 &&
+            !element.matches(":disabled") &&
+            !element.closest("[hidden], [inert]") &&
+            element.getClientRects().length > 0 &&
+            !element.closest("dialog:not([open])"),
+        );
+        const first = focusable[0];
+        const last = focusable.at(-1);
+        if (!first) {
+          event.preventDefault();
+          d.focus();
+          return;
+        }
+        if (
+          event.shiftKey &&
+          (document.activeElement === first ||
+            !d.contains(document.activeElement))
+        ) {
+          event.preventDefault();
+          last?.focus();
+        } else if (
+          !event.shiftKey &&
+          (document.activeElement === last ||
+            !d.contains(document.activeElement))
+        ) {
+          event.preventDefault();
+          first.focus();
+        }
+      }
+    };
+    document.addEventListener("keydown", keydown);
     return () => {
+      document.removeEventListener("keydown", keydown);
+      const index = sheetStack.indexOf(d);
+      if (index !== -1) sheetStack.splice(index, 1);
       d?.close();
-      document.body.style.overflow = prev;
+      document.body.style.overflow = sheetStack.length
+        ? "hidden"
+        : sheetOriginalOverflow;
       before.current?.focus();
     };
   }, []);
@@ -115,7 +173,8 @@ export function Sheet({
       className={`sheet ${wide ? "wide" : ""}`}
       onCancel={(e) => {
         e.preventDefault();
-        onClose();
+        e.stopPropagation();
+        if (sheetStack.at(-1) === ref.current) closeCurrent.current();
       }}
       onClick={(e) => {
         if (e.target === ref.current) {
@@ -126,7 +185,7 @@ export function Sheet({
             e.clientY < r.top ||
             e.clientY > r.bottom
           )
-            onClose();
+            closeCurrent.current();
         }
       }}
       aria-label={title}

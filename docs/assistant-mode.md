@@ -23,6 +23,26 @@ Codex 的个人安装位置为 `~/.agents/skills/yijian`，Claude Code 为 `~/.c
 
 OpenAI、兼容接口与本地 Ollama 也支持同一套上传、自动填表和核对流程，在设置中填写支持图片输入的视觉模型。Ollama 服务与模型需要用户自行准备。Claude Code 的识别通过打开的助手会话执行。
 
+## 用 Codex 美化商品图
+
+在图片美化设置中选择 Codex，并保持主 AI 方式为 Codex、助手已连接。在衣物页面创建美化任务后，向 Codex 发送“处理待处理的图片美化任务”，也可以指定一条任务。更新功能后，先从 AI 设置重新安装衣间技能，让助手使用包含美化命令的版本。
+
+当前 Codex 会话领取任务，读取任务固定的原图，使用内置生图编辑，再把生成图片回传。内置生图模型与额度由 Codex 提供，无需填写图片 API 密钥；额度说明见 [Codex 图片生成文档](https://developers.openai.com/codex/image-generation.md)。CLI 本身不调用模型。网页排队后显示等待处理，已连接状态不代表 Codex 会在后台自动监听。
+
+美化以保留衣物或配饰的款式、颜色、图案和细节为前提，改善光线与背景。结果先作为预览返回，用户对比后决定是否采用，原图保留。图片生成可能改变细节，采用前应核对。任务处理期限最长十五分钟，并受当前一小时连接有效期限制；用户取消、原图变化或授权失效后，旧结果不能提交。
+
+技能提供以下命令，其中任务编号必须使用 `beautify-list` 返回的 `job_id`：
+
+```powershell
+python integrations/yijian/skills/yijian/scripts/yijian.py beautify-list
+python integrations/yijian/skills/yijian/scripts/yijian.py beautify-claim <任务编号>
+python integrations/yijian/skills/yijian/scripts/yijian.py beautify-download <任务编号> --output <新的原图路径.jpg>
+python integrations/yijian/skills/yijian/scripts/yijian.py beautify-submit <任务编号> --file <实际生成图片路径.png>
+python integrations/yijian/skills/yijian/scripts/yijian.py beautify-fail <任务编号>
+```
+
+领取与下载之后，必须由助手实际查看原图并调用内置图片工具。上传支持 PNG、JPEG、WebP，最大 20 MiB。没有内置生图能力或无法取得生成文件时，助手说明失败；用户仍可选择在衣间配置自己的图片 API 服务。
+
 ## 终端与项目安装
 
 需要项目专用技能时，在衣间仓库目录运行 Python 3.11 或更高版本：

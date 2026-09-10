@@ -65,7 +65,7 @@ def _allow_address(value: str) -> None:
         raise ModelConnectionError("只支持公网 HTTPS 接口和本机回环接口。")
 
 
-async def _destination(base_url: str) -> tuple[httpx.URL, str, str]:
+async def _destination(base_url: str, path: str = "/chat/completions") -> tuple[httpx.URL, str, str]:
     normalized = endpoint_url(base_url)
     parts = urlsplit(normalized)
     host = parts.hostname
@@ -98,7 +98,7 @@ async def _destination(base_url: str) -> tuple[httpx.URL, str, str]:
     address = next((row[4][0] for row in results if row[0] == socket.AF_INET), results[0][4][0])
     if parts.scheme == "http" and not _address(address).is_loopback:
         raise ModelConnectionError("本机 HTTP 接口只能连接回环地址。")
-    return httpx.URL(normalized + "/chat/completions").copy_with(host=address), parts.netloc, host
+    return httpx.URL(normalized + path).copy_with(host=address), parts.netloc, host
 
 
 async def completion(configuration: dict, messages: list[dict], *, model: str, limit: int = 1800) -> str:

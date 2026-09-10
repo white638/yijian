@@ -43,6 +43,32 @@ class ImageTests(unittest.TestCase):
         with Image.open(self.file(result["image_url"])) as photo:
             self.assertEqual(("JPEG", "RGB", (64, 48)), (photo.format, photo.mode, photo.size))
 
+    def test_beautified_asset_preserves_original_and_strips_metadata(self):
+        original = self.pipeline.prepare(picture(), remove_background=False)
+        before = self.file(original["original_url"]).read_bytes()
+        exif = Image.Exif()
+        exif[315] = "private metadata"
+        result = self.pipeline.beautify(picture(color="white", format="JPEG", exif=exif))
+        self.assertTrue(result["beautified_url"].endswith("-beautified.jpg"))
+        self.assertEqual(before, self.file(original["original_url"]).read_bytes())
+        with Image.open(self.file(result["beautified_url"])) as image:
+            self.assertEqual(("JPEG", "RGB", (64, 48)), (image.format, image.mode, image.size))
+            self.assertFalse(image.getexif())
+        with self.assertRaises(ValueError):
+            self.pipeline.restore(result["beautified_url"])
+
+    def test_invalid_generated_image_creates_no_asset(self):
+        for content in (b"not an image", picture(format="GIF")):
+            with self.assertRaises(ValueError):
+                self.pipeline.beautify(content)
+        self.assertFalse(list(self.pipeline.root.iterdir()))
+
+    def test_beautified_write_failure_cleans_pending_file(self):
+        with patch("server.images.os.replace", side_effect=OSError("full")):
+            with self.assertRaises(OSError):
+                self.pipeline.beautify(picture())
+        self.assertFalse(list(self.pipeline.root.iterdir()))
+
     def test_default_removal_and_restore_preserve_original_bytes(self):
         with patch.object(self.pipeline, "_extract", return_value=Image.new("RGB", (64, 48), "white")):
             result = self.pipeline.prepare(picture())

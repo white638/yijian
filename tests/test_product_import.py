@@ -9,7 +9,7 @@ import threading
 import time
 import zipfile
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 from fastapi import BackgroundTasks, HTTPException
 import httpx
@@ -469,14 +469,21 @@ async def test_link_import_reuses_background_removal_and_all_recognition_provide
 async def test_background_failure_keeps_photo_and_can_retry_after_import_failure(suite, network, monkeypatch):
     image(network)
     result = await preview(suite, "https://shop.example/shirt.png")
+    extraction = Mock(side_effect=RuntimeError("图片处理组件暂不可用"))
+    monkeypatch.setattr(suite.app.state.images, "_extract", extraction)
     importer = suite.app.state.import_photo
     failed = AsyncMock(side_effect=HTTPException(422, "暂未导入"))
     monkeypatch.setattr(suite.app.state, "import_photo", failed)
     assert (await suite.client.post("/api/import/items", json=selection(result))).status_code == 422
+    extraction.assert_not_called()
     monkeypatch.setattr(suite.app.state, "import_photo", importer)
     response = await suite.client.post("/api/import/items", json=selection(result, remove_background=True))
     assert response.status_code == 200
     assert response.json()["warnings"] and response.json()["items"][0]["background_status"] == "failed"
+    extraction.assert_called_once()
+    item = response.json()["items"][0]
+    assert item["image_url"] == item["original_url"]
+    assert suite.app.state.images.resolve(item["original_url"].rsplit("/", 1)[1]).is_file()
     assert len(suite.store.read()["items"]) == 1
 
 

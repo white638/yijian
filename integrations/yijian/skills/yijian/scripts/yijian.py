@@ -1,4 +1,4 @@
-"""衣间助手：通过短期授权读取衣橱照片、提交识别结果和保存搭配。"""
+"""衣间助手：通过短期授权读取衣橱照片、提交识别和图片美化结果、保存搭配。"""
 
 import argparse
 import base64
@@ -22,7 +22,26 @@ from uuid import UUID, uuid4
 
 DEFAULT_SERVER = "http://127.0.0.1:3110/api"
 MAX_RESPONSE = 32 * 1024 * 1024
-TAG_FIELDS = {"category", "name", "colors", "seasons", "occasions", "tags"}
+MAX_IMAGE_UPLOAD = 20 * 1024 * 1024
+TAG_FIELDS = {
+    "category",
+    "name",
+    "colors",
+    "seasons",
+    "occasions",
+    "tags",
+    "brand",
+    "subcategory",
+    "materials",
+    "materials_evidence",
+    "pattern",
+    "styles",
+    "fit",
+    "cut",
+    "neckline",
+    "sleeve_length",
+    "length",
+}
 OUTFIT_FIELDS = {"item_ids", "name", "notes"}
 CATEGORIES = {"top", "bottom", "dress", "outerwear", "shoes", "bag", "accessory", "other"}
 
@@ -57,7 +76,31 @@ class NoRedirect(HTTPRedirectHandler):
         return None
 
 
-def request(server, path, *, token=None, method="GET", payload=None, binary=False):
+def image_multipart(path):
+    with path.open("rb") as handle:
+        content = handle.read(MAX_IMAGE_UPLOAD + 1)
+    if len(content) > MAX_IMAGE_UPLOAD:
+        raise BridgeError("美化图片不能超过 20 MiB。")
+    if content.startswith(b"\x89PNG\r\n\x1a\n"):
+        extension, content_type = "png", "image/png"
+    elif content.startswith(b"\xff\xd8\xff"):
+        extension, content_type = "jpg", "image/jpeg"
+    elif content.startswith(b"RIFF") and content[8:12] == b"WEBP":
+        extension, content_type = "webp", "image/webp"
+    else:
+        raise BridgeError("请提交实际生成的 PNG、JPEG 或 WebP 图片文件。")
+    boundary = "yijian-" + secrets.token_hex(24)
+    while boundary.encode("ascii") in content:
+        boundary = "yijian-" + secrets.token_hex(24)
+    header = (
+        f"--{boundary}\r\n"
+        f'Content-Disposition: form-data; name="file"; filename="beautified.{extension}"\r\n'
+        f"Content-Type: {content_type}\r\n\r\n"
+    ).encode("ascii")
+    return header + content + f"\r\n--{boundary}--\r\n".encode("ascii"), boundary
+
+
+def request(server, path, *, token=None, method="GET", payload=None, binary=False, file=None):
     url = server + path
     if not path.startswith("/") or path.startswith("//"):
         raise BridgeError("请求路径无效。")
@@ -65,7 +108,12 @@ def request(server, path, *, token=None, method="GET", payload=None, binary=Fals
     if token:
         headers["Authorization"] = f"Bearer {token}"
     body = None
-    if payload is not None:
+    if file is not None:
+        if payload is not None or method != "POST":
+            raise BridgeError("图片提交请求格式无效。")
+        body, boundary = image_multipart(file)
+        headers["Content-Type"] = "multipart/form-data; boundary=" + boundary
+    elif payload is not None:
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
         headers["Content-Type"] = "application/json"
     opener = build_opener(ProxyHandler({}), NoRedirect())
@@ -90,6 +138,8 @@ def request(server, path, *, token=None, method="GET", payload=None, binary=Fals
         if error.code in (401, 403):
             raise BridgeError("连接无效、已过期或没有权限，请重新发起配对。", error.code) from None
         if error.code == 409:
+            if path.startswith("/beautify/"):
+                raise BridgeError("图片美化任务状态或连接已变化，请回到衣间检查任务。", 409) from None
             raise BridgeError("衣间当前状态不支持此操作，请先在设置中保存对应的助手方式。", 409) from None
         raise BridgeError(f"衣橱请求失败（HTTP {error.code}）。", error.code) from None
     except (URLError, TimeoutError, json.JSONDecodeError):
@@ -378,7 +428,7 @@ def download_item(server, token, identifier, target):
     origin = urlsplit(server)
     if (
         (resolved.scheme, resolved.netloc) != (origin.scheme, origin.netloc)
-        or not re.fullmatch(r"/api/images/[a-f0-9]{32}-(?:original|cutout)\.jpg", resolved.path)
+        or not re.fullmatch(r"/api/images/[a-f0-9]{32}-(?:original|cutout|beautified)\.jpg", resolved.path)
         or resolved.query
         or resolved.fragment
     ):
@@ -390,6 +440,22 @@ def download_item(server, token, identifier, target):
     with target.open("xb") as handle:
         handle.write(data)
     return {"item_id": item["id"], "path": str(target)}
+
+
+def beautify_job_id(value):
+    if not isinstance(value, str) or not re.fullmatch(r"[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}", value):
+        raise BridgeError("美化任务编号必须使用衣间返回的真实编号。")
+    return value
+
+
+def download_beautify(server, token, identifier, target):
+    identifier = beautify_job_id(identifier)
+    data = request(server, f"/beautify/jobs/{identifier}/source", token=token, binary=True)
+    target = target.resolve()
+    target.parent.mkdir(parents=True, exist_ok=True)
+    with target.open("xb") as handle:
+        handle.write(data)
+    return {"job_id": identifier, "path": str(target)}
 
 
 def read_payload(path, allowed):
@@ -409,6 +475,20 @@ def tag_item(server, token, identifier, payload, confirmed=False):
     if current["ai_status"] == "processing":
         raise BridgeError("衣物仍在处理中，请稍后再写入标签。")
     payload = {**payload, "confirmed": confirmed}
+    evidence = payload.pop("materials_evidence", "")
+    if not isinstance(evidence, str) or not evidence.strip():
+        payload.pop("materials", None)
+    for field in TAG_FIELDS - {"category", "name", "colors", "seasons", "occasions", "tags"}:
+        value = payload.get(field)
+        if isinstance(value, str):
+            value = value.strip()
+        elif isinstance(value, list):
+            value = [entry.strip() if isinstance(entry, str) else entry for entry in value]
+            value = [entry for entry in value if entry != ""]
+        if not value:
+            payload.pop(field, None)
+        else:
+            payload[field] = value
     return request(server, "/items/" + identifier, token=token, method="PATCH", payload=payload)
 
 
@@ -454,6 +534,15 @@ def main(argv=None):
     tag.add_argument("--confirm", action="store_true", help="仅在用户明确认可识别结果后确认衣物")
     outfit = commands.add_parser("save-outfit")
     outfit.add_argument("--file", required=True, type=Path)
+    commands.add_parser("beautify-list")
+    commands.add_parser("beautify-claim").add_argument("job_id")
+    beautify_download = commands.add_parser("beautify-download")
+    beautify_download.add_argument("job_id")
+    beautify_download.add_argument("--output", required=True, type=Path)
+    beautify_submit = commands.add_parser("beautify-submit")
+    beautify_submit.add_argument("job_id")
+    beautify_submit.add_argument("--file", required=True, type=Path)
+    commands.add_parser("beautify-fail").add_argument("job_id")
     args = parser.parse_args(argv)
     try:
         server = normalize_server(args.server)
@@ -486,6 +575,22 @@ def main(argv=None):
             elif args.command == "tag":
                 output = tag_item(
                     server, token, args.item_id, read_payload(args.file, TAG_FIELDS), args.confirm
+                )
+            elif args.command == "beautify-list":
+                output = request(server, "/beautify/jobs", token=token)
+            elif args.command == "beautify-download":
+                output = download_beautify(server, token, args.job_id, args.output)
+            elif args.command in {"beautify-claim", "beautify-submit", "beautify-fail"}:
+                identifier = beautify_job_id(args.job_id)
+                action = {"beautify-claim": "claim", "beautify-submit": "result", "beautify-fail": "fail"}[
+                    args.command
+                ]
+                output = request(
+                    server,
+                    f"/beautify/jobs/{identifier}/{action}",
+                    token=token,
+                    method="POST",
+                    **({"file": args.file} if action == "result" else {"payload": {}}),
                 )
             else:
                 output = save_outfit(server, token, read_payload(args.file, OUTFIT_FIELDS))

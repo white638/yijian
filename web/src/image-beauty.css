@@ -1,0 +1,94 @@
+.beauty-fields {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+}
+.image-beauty-settings h2 {
+  margin: 0;
+}
+.beauty-providers {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.beauty-providers button {
+  padding: 11px;
+  border: 1px solid #e3e3ed;
+  border-radius: 12px;
+}
+.beauty-providers button[aria-pressed="true"] {
+  border-color: #88819f;
+  background: #f2eff9;
+}
+.beauty-dialog {
+  min-width: 0;
+}
+.beauty-comparison {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.beauty-comparison figure {
+  margin: 0;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid #e8e8ef;
+  border-radius: 14px;
+  background: #fafafa;
+}
+.beauty-comparison figcaption {
+  font-size: 12px;
+  color: #6b6b78;
+  min-height: 36px;
+  display: flex;
+  align-items: center;
+  margin-bottom: 8px;
+}
+.beauty-comparison figcaption select {
+  width: 100%;
+  font-size: 12px;
+  min-height: 36px;
+  padding: 6px;
+}
+.beauty-comparison img {
+  width: 100%;
+  aspect-ratio: 3 / 4;
+  object-fit: contain;
+  display: block;
+}
+.beauty-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 12px;
+  aspect-ratio: 3 / 4;
+  color: #6b6b78;
+  font-size: 12px;
+  text-align: center;
+}
+.beauty-progress {
+  padding: 12px 14px;
+  border: 1px solid #d9d4e9;
+  border-radius: 12px;
+  background: #f5f3fb;
+  font-size: 13px;
+}
+.beauty-copy-text {
+  user-select: all;
+  padding: 10px;
+  background: white;
+  border: 1px solid #e4e4ed;
+  border-radius: 10px;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 420px) {
+  .beauty-comparison {
+    gap: 8px;
+  }
+  .beauty-comparison figure {
+    padding: 7px;
+  }
+}

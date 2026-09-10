@@ -1,0 +1,38 @@
+.attribute-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.attribute-chips button {
+  padding: 7px 11px;
+  min-height: 36px;
+  border: 1px solid #e5e5ec;
+  border-radius: 10px;
+  font-size: 12px;
+  color: #6b6b78;
+}
+.attribute-chips button[aria-pressed="true"] {
+  color: #34303e;
+  background: #f0edf8;
+  border-color: #aca1c4;
+}
+.item-editor-fields {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.item-extra-entry {
+  justify-content: space-between;
+  text-align: left;
+}
+.item-extra-entry span {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.item-extra-entry small {
+  color: #6b6b78;
+  font-size: 12px;
+  font-weight: 400;
+}

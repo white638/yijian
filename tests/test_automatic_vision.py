@@ -149,7 +149,19 @@ async def test_browser_upload_automatically_uses_host_photo_and_saves_reviewable
     assert saved["updated_at"] != saved["created_at"]
     path, schema, prompt = suite.describe.await_args.args
     assert path.is_file() and path.name in saved["image_url"]
-    assert set(schema["properties"]) == set(DESCRIPTION)
+    assert set(schema["properties"]) == set(DESCRIPTION) | {
+        "subcategory",
+        "materials",
+        "materials_evidence",
+        "pattern",
+        "styles",
+        "fit",
+        "cut",
+        "neckline",
+        "sleeve_length",
+        "length",
+    }
+    assert not {"size", "care_notes", "price"} & set(schema["properties"])
     assert "袖长" in prompt and "图案" in prompt and "版型" in prompt and "不要猜价格" in prompt
     model_api.assert_not_awaited()
     assert suite.store.read()["ai"]["jobs"] == {}

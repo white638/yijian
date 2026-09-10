@@ -3,6 +3,8 @@
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from contextlib import redirect_stderr, redirect_stdout
 from io import StringIO
+from email import policy
+from email.parser import BytesParser
 import importlib.util
 import json
 import os
@@ -45,6 +47,10 @@ class AssistantTests(unittest.TestCase):
         self.device_outcomes = ["pending", "approved"]
         self.client_name = "Codex"
         self.requests, self.outfits = [], []
+        self.beautify_job = {"job_id": str(uuid4()), "item_id": str(uuid4()), "status": "queued"}
+        self.beautify_claimed = False
+        self.beautify_result_status = 200
+        self.uploads = []
         self.items = [
             {
                 "id": str(uuid4()),
@@ -76,11 +82,14 @@ class AssistantTests(unittest.TestCase):
                 self.wfile.write(body)
 
             def handle_request(self):
-                body = (
-                    json.loads(self.rfile.read(int(self.headers["Content-Length"])))
-                    if self.headers.get("Content-Length")
-                    else None
-                )
+                raw = self.rfile.read(int(self.headers.get("Content-Length", 0)))
+                content_type = self.headers.get("Content-Type", "")
+                if content_type.startswith("multipart/form-data"):
+                    body = BytesParser(policy=policy.default).parsebytes(
+                        f"Content-Type: {content_type}\r\nMIME-Version: 1.0\r\n\r\n".encode() + raw
+                    )
+                else:
+                    body = json.loads(raw) if raw else None
                 case.requests.append((self.command, self.path, body))
                 if self.path == "/api/ai/device/start" and self.command == "POST":
                     if body not in ({"client": "codex"}, {"client": "claude-code"}):
@@ -116,6 +125,38 @@ class AssistantTests(unittest.TestCase):
                 token = authorization.removeprefix("Bearer ")
                 if not authorization.startswith("Bearer ") or token not in case.valid_tokens:
                     return self.send({}, 401)
+                if self.path == "/api/beautify/jobs" and self.command == "GET":
+                    return self.send({"jobs": [case.beautify_job]})
+                job_path = "/api/beautify/jobs/" + case.beautify_job["job_id"]
+                if self.path == job_path + "/claim" and self.command == "POST":
+                    if body != {} or case.beautify_claimed:
+                        return self.send({}, 409)
+                    case.beautify_claimed = True
+                    return self.send(
+                        {
+                            "job_id": case.beautify_job["job_id"],
+                            "item_id": case.beautify_job["item_id"],
+                            "source_url": "https://untrusted.example/photo.jpg",
+                            "prompt": "保留衣物款式，改善光线与背景。",
+                            "lease_expires_at": time.time() + 900,
+                        }
+                    )
+                if self.path.startswith(job_path + "/"):
+                    if not case.beautify_claimed:
+                        return self.send({}, 403)
+                    if self.path == job_path + "/source" and self.command == "GET":
+                        return self.send(b"fixed-original-photo", image=True)
+                    if self.path == job_path + "/result" and self.command == "POST":
+                        case.uploads.append({"message": body, "raw": raw, "content_type": content_type})
+                        if case.beautify_result_status != 200:
+                            return self.send(
+                                {"detail": "sensitive server detail"}, case.beautify_result_status
+                            )
+                        return self.send({"job_id": case.beautify_job["job_id"], "status": "ready"})
+                    if self.path == job_path + "/fail" and self.command == "POST":
+                        if body != {}:
+                            return self.send({}, 422)
+                        return self.send({"job_id": case.beautify_job["job_id"], "status": "failed"})
                 if self.path == "/api/state":
                     return self.send({"items": case.items, "wear_events": []}, case.state_status)
                 if self.path == "/api/ai/connection/verify" and self.command == "POST":
@@ -505,6 +546,180 @@ class AssistantTests(unittest.TestCase):
                 )
         self.assertFalse(any(path.startswith("/api/images") for _, path, _ in self.requests))
 
+    def test_real_cli_beautify_claim_fixed_source_and_multipart_result(self):
+        self.connect()
+        self.requests.clear()
+        job_id = self.beautify_job["job_id"]
+        listed = self.run_cli("beautify-list")
+        self.assertEqual(job_id, listed["jobs"][0]["job_id"])
+        claimed = self.run_cli("beautify-claim", job_id)
+        self.assertEqual(job_id, claimed["job_id"])
+        self.assertIn("保留衣物", claimed["prompt"])
+        original = Path(self.temp.name) / "original.jpg"
+        downloaded = self.run_cli("beautify-download", job_id, "--output", str(original))
+        self.assertEqual(str(original.resolve()), downloaded["path"])
+        self.assertEqual(b"fixed-original-photo", original.read_bytes())
+        generated = Path(self.temp.name) / "商品效果.png"
+        content = b"\x89PNG\r\n\x1a\n\x00\xff\x80image-payload\r\n"
+        generated.write_bytes(content)
+        result = self.run_cli("beautify-submit", job_id, "--file", str(generated))
+        self.assertEqual("ready", result["status"])
+        self.assertEqual(
+            [
+                ("GET", "/api/beautify/jobs"),
+                ("POST", f"/api/beautify/jobs/{job_id}/claim"),
+                ("GET", f"/api/beautify/jobs/{job_id}/source"),
+                ("POST", f"/api/beautify/jobs/{job_id}/result"),
+            ],
+            [(method, path) for method, path, _ in self.requests],
+        )
+
+        upload = self.uploads[0]
+        parts = list(upload["message"].iter_parts())
+        self.assertEqual(1, len(parts))
+        self.assertEqual("file", parts[0].get_param("name", header="Content-Disposition"))
+        self.assertEqual("beautified.png", parts[0].get_filename())
+        self.assertEqual("image/png", parts[0].get_content_type())
+        self.assertEqual(content, parts[0].get_payload(decode=True))
+        boundary = upload["message"].get_boundary().encode()
+        self.assertTrue(upload["raw"].startswith(b"--" + boundary + b"\r\n"))
+        self.assertTrue(upload["raw"].endswith(b"\r\n--" + boundary + b"--\r\n"))
+
+    def test_detailed_labels_preserve_known_materials_without_visible_evidence(self):
+        self.connect()
+        self.items[0].update(materials=["棉"], fit="宽松", size="M", care_notes="手洗")
+        result = bridge.tag_item(
+            self.server,
+            self.token,
+            self.items[0]["id"],
+            {
+                "category": "top",
+                "subcategory": "T恤",
+                "styles": ["极简"],
+                "pattern": "纯色",
+                "materials": ["聚酯纤维"],
+                "fit": "",
+            },
+        )
+        self.assertEqual(["棉"], result["materials"])
+        self.assertEqual("宽松", result["fit"])
+        self.assertEqual("M", result["size"])
+        self.assertEqual("手洗", result["care_notes"])
+        self.assertEqual("T恤", result["subcategory"])
+        self.assertEqual(["极简"], result["styles"])
+        result = bridge.tag_item(
+            self.server,
+            self.token,
+            self.items[0]["id"],
+            {
+                "category": "top",
+                "materials": ["亚麻"],
+                "materials_evidence": "100% linen",
+            },
+        )
+        self.assertEqual(["亚麻"], result["materials"])
+        self.assertNotIn("materials_evidence", result)
+
+    def test_blank_detailed_labels_preserve_existing_attributes(self):
+        self.connect()
+        existing = {
+            "brand": "已有品牌",
+            "subcategory": "T恤",
+            "pattern": "纯色",
+            "fit": "宽松",
+            "cut": "直筒",
+            "neckline": "圆领",
+            "sleeve_length": "短袖",
+            "length": "常规",
+            "styles": ["极简"],
+            "materials": ["棉"],
+        }
+        self.items[0].update(existing)
+        for blank in ("", " \t\n "):
+            with self.subTest(blank=blank):
+                payload = {
+                    field: [blank] if isinstance(value, list) else blank for field, value in existing.items()
+                }
+                result = bridge.tag_item(
+                    self.server,
+                    self.token,
+                    self.items[0]["id"],
+                    {"category": "top", **payload, "materials_evidence": "100% cotton"},
+                )
+                self.assertEqual(existing, {field: result[field] for field in existing})
+        result = bridge.tag_item(
+            self.server,
+            self.token,
+            self.items[0]["id"],
+            {"category": "top", "brand": " 新品牌 ", "styles": [" ", " 休闲 ", ""]},
+        )
+        self.assertEqual("新品牌", result["brand"])
+        self.assertEqual(["休闲"], result["styles"])
+
+    def test_materials_require_nonblank_text_evidence(self):
+        self.connect()
+        self.items[0]["materials"] = ["棉"]
+        for evidence in (None, True, 1, ["100% linen"], {"label": "100% linen"}, " \t\n "):
+            with self.subTest(evidence=evidence):
+                result = bridge.tag_item(
+                    self.server,
+                    self.token,
+                    self.items[0]["id"],
+                    {"category": "top", "materials": ["亚麻"], "materials_evidence": evidence},
+                )
+                self.assertEqual(["棉"], result["materials"])
+                self.assertNotIn("materials_evidence", result)
+
+    def test_beautify_download_preserves_existing_file_and_requires_claim(self):
+        token = self.connect()
+        destination = Path(self.temp.name) / "original.jpg"
+        with self.assertRaises(bridge.BridgeError):
+            bridge.download_beautify(self.server, token, self.beautify_job["job_id"], destination)
+        self.assertFalse(destination.exists())
+        self.beautify_claimed = True
+        destination.write_bytes(b"existing-file")
+        with self.assertRaises(FileExistsError):
+            bridge.download_beautify(self.server, token, self.beautify_job["job_id"], destination)
+        self.assertEqual(b"existing-file", destination.read_bytes())
+
+    def test_beautify_fail_submits_no_private_error_details(self):
+        self.connect()
+        self.beautify_claimed = True
+        self.requests.clear()
+        result = self.run_cli("beautify-fail", self.beautify_job["job_id"])
+        self.assertEqual("failed", result["status"])
+        self.assertEqual({}, self.requests[0][2])
+
+    def test_beautify_stale_result_is_reported_as_failure(self):
+        self.connect()
+        self.beautify_claimed = True
+        self.beautify_result_status = 409
+        picture = Path(self.temp.name) / "generated.jpg"
+        picture.write_bytes(b"\xff\xd8\xfftest-payload")
+        status, output, error = self.call_main(
+            "beautify-submit", self.beautify_job["job_id"], "--file", str(picture)
+        )
+        self.assertEqual(1, status)
+        self.assertEqual("", output)
+        self.assertIn("任务状态或连接已变化", error)
+        self.assertNotIn("sensitive server detail", error)
+
+    def test_beautify_invalid_identifiers_never_make_requests(self):
+        self.connect()
+        self.requests.clear()
+        for command in ("beautify-claim", "beautify-fail"):
+            for identifier in ("../state", self.beautify_job["job_id"] + "?x=1", "https://elsewhere.test"):
+                status, _, _ = self.call_main(command, identifier)
+                self.assertEqual(1, status)
+        self.assertEqual([], self.requests)
+
+    def test_adopted_beautified_image_can_be_downloaded_for_recognition(self):
+        token = self.connect()
+        self.items[0]["image_url"] = "/api/images/" + "b" * 32 + "-beautified.jpg"
+        destination = Path(self.temp.name) / "image.jpg"
+        bridge.download_item(self.server, token, self.items[0]["id"], destination)
+        self.assertEqual(b"photo-content", destination.read_bytes())
+
     def test_unknown_id_cannot_read_or_label(self):
         token = self.connect()
         with self.assertRaises(bridge.BridgeError):
@@ -550,6 +765,37 @@ class AssistantTests(unittest.TestCase):
 
 
 class AssistantSafetyTests(unittest.TestCase):
+    def test_image_upload_checks_content_and_size_before_http(self):
+        with tempfile.TemporaryDirectory() as directory:
+            picture = Path(directory) / "generated.png"
+            for content in (b"", b"not an image", b"<svg></svg>"):
+                picture.write_bytes(content)
+                with self.assertRaises(bridge.BridgeError):
+                    bridge.image_multipart(picture)
+            picture.write_bytes(b"\x89PNG\r\n\x1a\n" + b"x" * 20)
+            with patch.object(bridge, "MAX_IMAGE_UPLOAD", 16):
+                with self.assertRaises(bridge.BridgeError):
+                    bridge.image_multipart(picture)
+
+    def test_image_multipart_avoids_content_boundary_collisions_and_uses_actual_type(self):
+        with tempfile.TemporaryDirectory() as directory:
+            picture = Path(directory) / "generated.png"
+            for content, content_type, filename in (
+                (b"\xff\xd8\xffjpeg", "image/jpeg", "beautified.jpg"),
+                (b"RIFF\x00\x00\x00\x00WEBPpayload", "image/webp", "beautified.webp"),
+                (b"\x89PNG\r\n\x1a\nyijian-" + b"a" * 48, "image/png", "beautified.png"),
+            ):
+                picture.write_bytes(content)
+                with patch.object(bridge.secrets, "token_hex", side_effect=["a" * 48, "b" * 48]):
+                    body, boundary = bridge.image_multipart(picture)
+                message = BytesParser(policy=policy.default).parsebytes(
+                    f"Content-Type: multipart/form-data; boundary={boundary}\r\n\r\n".encode() + body
+                )
+                part = list(message.iter_parts())[0]
+                self.assertEqual(content, part.get_payload(decode=True))
+                self.assertEqual(content_type, part.get_content_type())
+                self.assertEqual(filename, part.get_filename())
+
     def test_server_address_constraints(self):
         self.assertEqual("http://127.0.0.1:3110/api", bridge.normalize_server("http://127.0.0.1:3110"))
         self.assertEqual("https://yijian.example/api", bridge.normalize_server("https://yijian.example/api/"))
@@ -570,6 +816,8 @@ class AssistantSafetyTests(unittest.TestCase):
             path = Path(directory) / "payload.json"
             for payload, allowed in (
                 ({"category": "top", "confirmed": True}, bridge.TAG_FIELDS),
+                ({"category": "top", "size": "M"}, bridge.TAG_FIELDS),
+                ({"category": "top", "care_notes": "手洗"}, bridge.TAG_FIELDS),
                 ({"name": "搭配", "source": "manual"}, bridge.OUTFIT_FIELDS),
             ):
                 path.write_text(json.dumps(payload), encoding="utf-8")

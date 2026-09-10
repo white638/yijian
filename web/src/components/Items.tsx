@@ -10,6 +10,7 @@ import {
   WandSparkles,
   Check,
   Link2,
+  ChevronRight,
 } from "lucide-react";
 import { api, send, failure } from "../api";
 import { useApp } from "../Store";
@@ -25,6 +26,15 @@ import {
 } from "../types";
 import { Button, Field, Sheet, Garment, ErrorText } from "./UI";
 import { ImageImportOptions, LinkImport } from "./LinkImport";
+import { ImageBeautyDialog } from "./ImageBeautyDialog";
+import { AttributeChoice, ItemAttributeFields } from "./ItemAttributes";
+import {
+  itemAttributeDraft,
+  observableAttributes,
+  subcategories,
+  type ItemAttributeDraft,
+} from "../item-attributes";
+import { ItemExtraDetails } from "./ItemExtraDetails";
 const accessoryCategoryHint =
   "帽子、围巾、腰带、首饰、手表等归入配饰；包袋请单独选择“包袋”。";
 function UploadPreview({ file }: { file: File }) {
@@ -287,8 +297,11 @@ export function ItemEditor({
     item.occasions.map(translateValue).join("、"),
   );
   const [tags, setTags] = useState(item.tags.join("、"));
+  const [attributes, setAttributes] = useState(() => itemAttributeDraft(item));
   const editedRecognition = useRef(new Set<string>());
   const [busy, setBusy] = useState("");
+  const [beautyOpen, setBeautyOpen] = useState(false);
+  const [detailsOpen, setDetailsOpen] = useState(false);
   const [error, setError] = useState("");
   const [loadedAI, setLoadedAI] = useState(item.updated_at);
   const [recognitionApplied, setRecognitionApplied] = useState(
@@ -332,6 +345,14 @@ export function ItemEditor({
     if (mayFill("occasions"))
       setOccasions(item.occasions.map(translateValue).join("、"));
     if (mayFill("tags")) setTags(item.tags.join("、"));
+    const recognized = itemAttributeDraft(item);
+    setAttributes((previous) => {
+      const next = { ...previous };
+      for (const field of observableAttributes) {
+        if (mayFill(field)) Object.assign(next, { [field]: recognized[field] });
+      }
+      return next;
+    });
     if (replaceManual) editedRecognition.current.clear();
     setLoadedAI(item.updated_at);
     setRecognitionApplied(true);
@@ -339,6 +360,13 @@ export function ItemEditor({
   function applyRecognition() {
     fillRecognition(true);
     notify("识别结果已填入，请核对后保存。");
+  }
+  function changeAttribute<K extends keyof ItemAttributeDraft>(
+    field: K,
+    value: ItemAttributeDraft[K],
+  ) {
+    editedRecognition.current.add(field);
+    setAttributes((previous) => ({ ...previous, [field]: value }));
   }
   async function action(kind: string) {
     if (busy) return;
@@ -357,11 +385,24 @@ export function ItemEditor({
           (!/^\d+(\.\d{1,2})?$/.test(price) || Number(price) > 99999999.99)
         )
           throw new Error("价格应为不超过两位小数的非负金额。");
+        const materials = [
+          ...new Set(attributes.materials.map((v) => v.trim()).filter(Boolean)),
+        ];
+        const styles = [
+          ...new Set(attributes.styles.map((v) => v.trim()).filter(Boolean)),
+        ];
+        if (materials.length > 10 || styles.length > 12)
+          throw new Error("材质最多填写 10 项，风格最多填写 12 项。");
+        if ([...materials, ...styles].some((v) => v.length > 80))
+          throw new Error("每项材质或风格请控制在 80 字以内。");
         await send(
           `/items/${item.id}`,
           {
             name: name.trim(),
             category,
+            ...attributes,
+            materials,
+            styles,
             colors: colors
               .split(/[、,，]/)
               .map((x) => x.trim())
@@ -445,7 +486,9 @@ export function ItemEditor({
   return (
     <Sheet
       title={item.confirmed ? "衣物详情" : "核对新衣物"}
-      onClose={onClose}
+      onClose={() => {
+        if (!busy) onClose();
+      }}
       busy={!!busy}
       wide
     >
@@ -467,6 +510,14 @@ export function ItemEditor({
               >
                 <WandSparkles size={16} />
                 去背景
+              </Button>
+              <Button
+                kind="secondary"
+                disabled={!!busy}
+                onClick={() => setBeautyOpen(true)}
+              >
+                <Sparkles size={16} />
+                图片美化
               </Button>
               {item.original_url && (
                 <Button
@@ -543,227 +594,268 @@ export function ItemEditor({
             action("save");
           }}
         >
-          <Field label="名称">
-            <input
-              value={name}
-              onChange={(e) => {
-                editedRecognition.current.add("name");
-                setName(e.target.value);
-              }}
-              maxLength={120}
-              placeholder="给衣物起个名字"
-            />
-          </Field>
-          <div className="form-grid">
-            <Field
-              label="类别"
-              hint={
-                category === "accessory" ? accessoryCategoryHint : undefined
-              }
-            >
-              <select
-                value={category}
-                onChange={(e) => {
-                  editedRecognition.current.add("category");
-                  setCategory(e.target.value as Category);
-                }}
-              >
-                {Object.entries(categories).map(([v, l]) => (
-                  <option key={v} value={v}>
-                    {l}
-                  </option>
-                ))}
-              </select>
-            </Field>
-            <Field label="状态">
-              <select
-                value={status}
-                onChange={(e) => setStatus(e.target.value as Item["status"])}
-              >
-                <option value="available">可穿</option>
-                <option value="laundry">待洗</option>
-                <option value="archived">已归档</option>
-              </select>
-            </Field>
-          </div>
-          <Field label="颜色" hint="多种颜色用顿号分开。">
-            <input
-              value={colors}
-              onChange={(e) => {
-                editedRecognition.current.add("colors");
-                setColors(e.target.value);
-              }}
-              placeholder="米白、蓝色"
-            />
-          </Field>
-          <div className="form-grid">
-            <Field label="品牌">
+          <fieldset className="item-editor-fields stack" disabled={!!busy}>
+            <Field label="名称">
               <input
-                value={brand}
+                value={name}
                 onChange={(e) => {
-                  editedRecognition.current.add("brand");
-                  setBrand(e.target.value);
+                  editedRecognition.current.add("name");
+                  setName(e.target.value);
                 }}
+                maxLength={120}
+                placeholder="给衣物起个名字"
               />
             </Field>
-            <Field label="所属衣橱">
+            <div className="form-grid">
+              <Field
+                label="类别"
+                hint={
+                  category === "accessory" ? accessoryCategoryHint : undefined
+                }
+              >
+                <select
+                  value={category}
+                  onChange={(e) => {
+                    editedRecognition.current.add("category");
+                    setCategory(e.target.value as Category);
+                  }}
+                >
+                  {Object.entries(categories).map(([v, l]) => (
+                    <option key={v} value={v}>
+                      {l}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+              <Field label="状态">
+                <select
+                  value={status}
+                  onChange={(e) => setStatus(e.target.value as Item["status"])}
+                >
+                  <option value="available">可穿</option>
+                  <option value="laundry">待洗</option>
+                  <option value="archived">已归档</option>
+                </select>
+              </Field>
+            </div>
+            <AttributeChoice
+              label="子分类"
+              value={attributes.subcategory}
+              choices={subcategories[category]}
+              onChange={(v) => changeAttribute("subcategory", v)}
+            />
+            <Field label="颜色" hint="多种颜色用顿号分开。">
               <input
-                value={closet}
-                onChange={(e) => setCloset(e.target.value)}
+                value={colors}
+                onChange={(e) => {
+                  editedRecognition.current.add("colors");
+                  setColors(e.target.value);
+                }}
+                placeholder="米白、蓝色"
               />
             </Field>
-          </div>
-          <Field label="适合季节">
-            <input
-              value={seasons}
-              onChange={(e) => {
-                editedRecognition.current.add("seasons");
-                setSeasons(e.target.value);
-              }}
-              placeholder="春季、秋季"
-            />
-          </Field>
-          <Field
-            label="适合场合"
-            hint="日常、工作、运动、正式，多种场合用顿号分开。"
-          >
-            <input
-              value={occasions}
-              onChange={(e) => {
-                editedRecognition.current.add("occasions");
-                setOccasions(e.target.value);
-              }}
-              placeholder="日常、工作"
-            />
-          </Field>
-          <Field
-            label="衣物标签"
-            hint="可填写袖长、图案、版型等，多标签用顿号分开。"
-          >
-            <input
-              value={tags}
-              onChange={(e) => {
-                editedRecognition.current.add("tags");
-                setTags(e.target.value);
-              }}
-              placeholder="短袖、纯色、宽松"
-            />
-          </Field>
-          <details className="details" open={item.price != null || !!reference}>
-            <summary>购买信息</summary>
-            <div className="stack tight">
-              {reference && (
-                <aside className="soft-panel stack tight" aria-label="参考价格">
-                  <div className="row wrap">
-                    <span>参考价 · {reference.label}</span>
-                    <strong>
-                      {money(reference.amount, reference.currency)}
-                    </strong>
-                  </div>
-                  <p className="small muted">
-                    {referenceSource && `来源：${referenceSource} · `}
-                    <time dateTime={reference.observed_at}>
-                      {new Date(reference.observed_at).toLocaleDateString(
-                        "zh-CN",
-                      )}
-                    </time>
-                  </p>
-                  <p className="small muted">
-                    {reference.label === "发售价格"
-                      ? "仅供参考，不代表实际支付金额。"
-                      : "价格随款式与活动变化。"}
-                  </p>
-                  <Button
-                    type="button"
-                    kind="secondary"
-                    disabled={!!busy}
-                    onClick={() => {
-                      setPrice(reference.amount.toFixed(2));
-                      setCurrency(reference.currency);
-                    }}
-                  >
-                    {price === "" ? "用作购入价" : "替换为参考价"}
-                  </Button>
-                </aside>
-              )}
-              <div className="form-grid">
-                <Field label="购买价格">
-                  <input
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    value={price}
-                    onChange={(e) => setPrice(e.target.value)}
-                  />
-                </Field>
-                <Field label="币种">
-                  <select
-                    value={currency}
-                    onChange={(e) => setCurrency(e.target.value)}
-                  >
-                    {[
-                      ["", "币种未填"],
-                      ["CNY", "人民币"],
-                      ["USD", "美元"],
-                      ["EUR", "欧元"],
-                      ["GBP", "英镑"],
-                      ["JPY", "日元"],
-                      ["KRW", "韩元"],
-                      ["HKD", "港币"],
-                      ["TWD", "新台币"],
-                      ["CAD", "加元"],
-                      ["AUD", "澳元"],
-                      ["CHF", "瑞士法郎"],
-                    ].map(([v, l]) => (
-                      <option key={v} value={v}>
-                        {l}
-                      </option>
-                    ))}
-                  </select>
-                </Field>
-              </div>
-              <Field label="购买日期">
+            <div className="form-grid">
+              <Field label="品牌">
                 <input
-                  type="date"
-                  value={date}
-                  onChange={(e) => setDate(e.target.value)}
+                  value={brand}
+                  onChange={(e) => {
+                    editedRecognition.current.add("brand");
+                    setBrand(e.target.value);
+                  }}
+                />
+              </Field>
+              <Field label="所属衣橱">
+                <input
+                  value={closet}
+                  onChange={(e) => setCloset(e.target.value)}
                 />
               </Field>
             </div>
-          </details>
-          <Field label="备注">
-            <textarea
-              rows={2}
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              placeholder="材质、穿着感受或搭配想法"
+            <Field label="适合季节">
+              <input
+                value={seasons}
+                onChange={(e) => {
+                  editedRecognition.current.add("seasons");
+                  setSeasons(e.target.value);
+                }}
+                placeholder="春季、秋季"
+              />
+            </Field>
+            <Field
+              label="适合场合"
+              hint="日常、工作、运动、正式，多种场合用顿号分开。"
+            >
+              <input
+                value={occasions}
+                onChange={(e) => {
+                  editedRecognition.current.add("occasions");
+                  setOccasions(e.target.value);
+                }}
+                placeholder="日常、工作"
+              />
+            </Field>
+            <Field
+              label="衣物标签"
+              hint="可填写袖长、图案、版型等，多标签用顿号分开。"
+            >
+              <input
+                value={tags}
+                onChange={(e) => {
+                  editedRecognition.current.add("tags");
+                  setTags(e.target.value);
+                }}
+                placeholder="短袖、纯色、宽松"
+              />
+            </Field>
+            <details
+              className="details"
+              open={item.price != null || !!reference}
+            >
+              <summary>购买信息</summary>
+              <div className="stack tight">
+                {reference && (
+                  <aside
+                    className="soft-panel stack tight"
+                    aria-label="参考价格"
+                  >
+                    <div className="row wrap">
+                      <span>参考价 · {reference.label}</span>
+                      <strong>
+                        {money(reference.amount, reference.currency)}
+                      </strong>
+                    </div>
+                    <p className="small muted">
+                      {referenceSource && `来源：${referenceSource} · `}
+                      <time dateTime={reference.observed_at}>
+                        {new Date(reference.observed_at).toLocaleDateString(
+                          "zh-CN",
+                        )}
+                      </time>
+                    </p>
+                    <p className="small muted">
+                      {reference.label === "发售价格"
+                        ? "仅供参考，不代表实际支付金额。"
+                        : "价格随款式与活动变化。"}
+                    </p>
+                    <Button
+                      type="button"
+                      kind="secondary"
+                      disabled={!!busy}
+                      onClick={() => {
+                        setPrice(reference.amount.toFixed(2));
+                        setCurrency(reference.currency);
+                      }}
+                    >
+                      {price === "" ? "用作购入价" : "替换为参考价"}
+                    </Button>
+                  </aside>
+                )}
+                <div className="form-grid">
+                  <Field label="购买价格">
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={price}
+                      onChange={(e) => setPrice(e.target.value)}
+                    />
+                  </Field>
+                  <Field label="币种">
+                    <select
+                      value={currency}
+                      onChange={(e) => setCurrency(e.target.value)}
+                    >
+                      {[
+                        ["", "币种未填"],
+                        ["CNY", "人民币"],
+                        ["USD", "美元"],
+                        ["EUR", "欧元"],
+                        ["GBP", "英镑"],
+                        ["JPY", "日元"],
+                        ["KRW", "韩元"],
+                        ["HKD", "港币"],
+                        ["TWD", "新台币"],
+                        ["CAD", "加元"],
+                        ["AUD", "澳元"],
+                        ["CHF", "瑞士法郎"],
+                      ].map(([v, l]) => (
+                        <option key={v} value={v}>
+                          {l}
+                        </option>
+                      ))}
+                    </select>
+                  </Field>
+                </div>
+                <Field label="购买日期">
+                  <input
+                    type="date"
+                    value={date}
+                    onChange={(e) => setDate(e.target.value)}
+                  />
+                </Field>
+              </div>
+            </details>
+            <ItemAttributeFields
+              value={attributes}
+              onChange={changeAttribute}
             />
-          </Field>
-          <label className="check-row">
-            <input
-              type="checkbox"
-              checked={favorite}
-              onChange={(e) => setFavorite(e.target.checked)}
-            />
-            <Heart size={17} />
-            加入收藏
-          </label>
-          <ErrorText error={error} />
-          <Button type="submit" busy={busy === "save"} disabled={!!busy}>
-            <Check size={17} />
-            确认并保存
-          </Button>
-          <Button
-            type="button"
-            kind="danger"
-            disabled={!!busy}
-            onClick={() => action("delete")}
-          >
-            <Trash2 size={16} />
-            删除衣物
-          </Button>
+            <Field label="备注">
+              <textarea
+                rows={2}
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                placeholder="材质、穿着感受或搭配想法"
+              />
+            </Field>
+            <label className="check-row">
+              <input
+                type="checkbox"
+                checked={favorite}
+                onChange={(e) => setFavorite(e.target.checked)}
+              />
+              <Heart size={17} />
+              加入收藏
+            </label>
+            <ErrorText error={error} />
+            <Button
+              type="button"
+              kind="secondary"
+              className="item-extra-entry"
+              disabled={!!busy}
+              onClick={() => setDetailsOpen(true)}
+            >
+              <span>
+                详情<small>风格、版型与洗护等补充信息</small>
+              </span>
+              <ChevronRight size={18} />
+            </Button>
+            <Button type="submit" busy={busy === "save"} disabled={!!busy}>
+              <Check size={17} />
+              确认并保存
+            </Button>
+            <Button
+              type="button"
+              kind="danger"
+              disabled={!!busy}
+              onClick={() => action("delete")}
+            >
+              <Trash2 size={16} />
+              删除衣物
+            </Button>
+          </fieldset>
         </form>
       </div>
+      {beautyOpen && (
+        <ImageBeautyDialog item={item} onClose={() => setBeautyOpen(false)} />
+      )}
+      {detailsOpen && (
+        <ItemExtraDetails
+          item={item}
+          value={attributes}
+          onChange={changeAttribute}
+          onClose={() => setDetailsOpen(false)}
+        />
+      )}
     </Sheet>
   );
 }

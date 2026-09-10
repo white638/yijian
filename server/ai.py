@@ -17,7 +17,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.routing import APIRoute
 from PIL import Image
-from pydantic import BaseModel, ConfigDict, Field, SecretStr
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator
 
 from .ai_network import ModelConnectionError, completion, endpoint_url
 from .auth import check_origin, digest, require_access
@@ -63,6 +63,23 @@ class GarmentDescription(BaseModel):
     occasions: list[Literal["casual", "work", "sport", "formal"]] = Field(default_factory=list, max_length=4)
     tags: list[str] = Field(default_factory=list, max_length=20)
     brand: str = Field(default="", max_length=120)
+    subcategory: str = Field(default="", max_length=80)
+    materials: list[str] = Field(default_factory=list, max_length=10)
+    materials_evidence: str = Field(default="", max_length=400)
+    pattern: str = Field(default="", max_length=80)
+    styles: list[str] = Field(default_factory=list, max_length=12)
+    fit: str = Field(default="", max_length=40)
+    cut: str = Field(default="", max_length=80)
+    neckline: str = Field(default="", max_length=80)
+    sleeve_length: str = Field(default="", max_length=40)
+    length: str = Field(default="", max_length=40)
+
+    @field_validator("colors", "tags", "materials", "styles")
+    @classmethod
+    def compact_labels(cls, values):
+        if any(len(value) > 80 for value in values):
+            raise ValueError("标签过长。")
+        return list(dict.fromkeys(value.strip() for value in values if value.strip()))
 
 
 class PrivateRoute(APIRoute):
@@ -534,7 +551,14 @@ async def analyze_item(store, images, item_id: str, claimed: tuple[dict, dict] |
             "tags为简短中文标签数组，尽量描述清楚可见的具体款式、袖长、领型、图案、衣长和版型，"
             "例如短袖、圆领、条纹、宽松；无法从图片确定的特征不填写。"
             "配饰的名称和tags应写明具体种类及可见形状、纹理、佩戴位置；不要给配饰编造袖长或领型。"
+            "同时用独立中文字段描述可观察细节：subcategory具体子分类，pattern图案，styles风格数组，"
+            "fit宽松或修身等版型，cut剪裁，neckline领型，sleeve_length袖长，length衣长或裤裙长度。"
+            "不适用于该单品或无法确认的细节用空字符串或空数组，不能套用到帽子、包和首饰。"
+            "materials仅根据图片中清晰可读的衣标或商品说明原文填写材质数组，"
+            "materials_evidence必须抄录对应的可读原文；没有明确文字证据时materials为空数组且materials_evidence为空字符串。"
+            "不能根据布料外观、纹理或触感推测精确纤维成分及比例。"
             "brand仅在看清品牌文字时填写，否则空字符串。未知季节和场合使用空数组。"
+            "不要输出size或care_notes，尺码和洗护说明由用户核对后手动填写。"
             "不要猜价格、尺码、购买日期、纤维成分或不存在的细节。"
         )
         if configuration["provider"] == "codex":
@@ -558,13 +582,24 @@ async def analyze_item(store, images, item_id: str, claimed: tuple[dict, dict] |
                 model=configuration["vision_model"],
             )
             result = _json_answer(answer)
-        candidate = GarmentDescription.model_validate(result).model_dump()
-        for field in ("colors", "tags"):
-            if any(len(label) > 80 for label in candidate[field]):
-                raise ValueError
-            candidate[field] = list(
-                dict.fromkeys(label.strip() for label in candidate[field] if label.strip())
-            )
+        validated = GarmentDescription.model_validate(result)
+        candidate = validated.model_dump(exclude_unset=True, exclude={"materials_evidence"})
+        if not validated.materials_evidence:
+            candidate.pop("materials", None)
+        for field in (
+            "brand",
+            "subcategory",
+            "materials",
+            "pattern",
+            "styles",
+            "fit",
+            "cut",
+            "neckline",
+            "sleeve_length",
+            "length",
+        ):
+            if not candidate.get(field):
+                candidate.pop(field, None)
         description = candidate
     except _AnalysisInvalidated:
         return

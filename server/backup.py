@@ -35,7 +35,12 @@ def image_urls(item):
     return list(
         dict.fromkeys(
             url
-            for url in [item.get("image_url"), item.get("original_url"), *item.get("extra_images", [])]
+            for url in [
+                item.get("image_url"),
+                item.get("original_url"),
+                item.get("beautified_url"),
+                *item.get("extra_images", []),
+            ]
             if url
         )
     )
@@ -130,11 +135,17 @@ def validate_data(data):
             raise ValueError("图片状态无效")
         for url in image_urls(item):
             if not isinstance(url, str) or not re.fullmatch(
-                r"/api/images/[a-f0-9]{32}-(?:original|cutout)\.jpg", url
+                r"/api/images/[a-f0-9]{32}-(?:original|cutout|beautified)\.jpg", url
             ):
                 raise ValueError("图片引用无效")
         if item.get("original_url") and not item["original_url"].endswith("-original.jpg"):
             raise ValueError("原图引用无效")
+        if item.get("beautified_url") and not item["beautified_url"].endswith("-beautified.jpg"):
+            raise ValueError("美化图引用无效")
+        if item.get("beautified_source_url") and item["beautified_source_url"] != (
+            item.get("original_url") or item.get("image_url")
+        ):
+            raise ValueError("美化原图引用无效")
     item_ids = {item["id"] for item in result["items"]}
     outfit_ids = {outfit["id"] for outfit in result["outfits"]}
 
@@ -233,7 +244,7 @@ def read_archive(content):
         for item in data["items"]:
             for url in image_urls(item):
                 name = url.removeprefix("/api/images/")
-                if not re.fullmatch(r"[a-f0-9]{32}-(?:original|cutout)\.jpg", name):
+                if not re.fullmatch(r"[a-f0-9]{32}-(?:original|cutout|beautified)\.jpg", name):
                     raise ValueError("图片名称无效")
                 if name not in blobs:
                     blob = archive.read("images/" + name)

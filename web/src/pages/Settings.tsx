@@ -29,6 +29,7 @@ import {
   ErrorText,
 } from "../components/UI";
 import { AIConnect } from "../components/AIConnect";
+import { ImageBeautySettings } from "../components/ImageBeautySettings";
 import { ItemPicker } from "../components/Outfits";
 export function Settings() {
   const { state, refresh, notify, navigate } = useApp();
@@ -107,9 +108,14 @@ export function Settings() {
         </div>
       </div>
       <div className="settings-columns">
-        <section className="settings-card" id="ai">
-          <AIConnect />
-        </section>
+        <div className="stack">
+          <section className="settings-card" id="ai">
+            <AIConnect />
+          </section>
+          <section className="settings-card" id="beautify">
+            <ImageBeautySettings />
+          </section>
+        </div>
         <div className="stack">
           <section className="settings-card stack">
             <h2>穿搭推荐偏好</h2>

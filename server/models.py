@@ -53,6 +53,17 @@ class ReferencePrice(StrictModel):
 class ItemInput(StrictModel):
     name: str = Field(default="未命名单品", min_length=1, max_length=120)
     category: Category = "other"
+    subcategory: str = Field(default="", max_length=80)
+    materials: list[str] = Field(default_factory=list, max_length=10)
+    pattern: str = Field(default="", max_length=80)
+    styles: list[str] = Field(default_factory=list, max_length=12)
+    fit: str = Field(default="", max_length=40)
+    cut: str = Field(default="", max_length=80)
+    neckline: str = Field(default="", max_length=80)
+    sleeve_length: str = Field(default="", max_length=40)
+    length: str = Field(default="", max_length=40)
+    size: str = Field(default="", max_length=80)
+    care_notes: str = Field(default="", max_length=1000)
     colors: list[str] = Field(default_factory=list, max_length=10)
     seasons: list[str] = Field(default_factory=list, max_length=4)
     occasions: list[str] = Field(default_factory=list, max_length=8)
@@ -80,7 +91,7 @@ class ItemInput(StrictModel):
         except (InvalidOperation, TypeError):
             raise ValueError("请输入有效的购买价格。") from None
 
-    @field_validator("colors", "seasons", "occasions", "tags")
+    @field_validator("colors", "seasons", "occasions", "tags", "materials", "styles")
     @classmethod
     def compact_labels(cls, values):
         if any(len(v) > 80 for v in values):

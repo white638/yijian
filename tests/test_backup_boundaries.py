@@ -276,3 +276,45 @@ def test_export_missing_photo_keeps_original_409_response(export_case):
     assert response.status_code == 409
     assert "照片无法读取" in response.json()["detail"]
     assert store.read()["items"][0]["id"] == item["id"]
+
+
+@pytest.mark.parametrize("applied", [False, True])
+def test_beautified_preview_and_original_survive_backup_without_secrets(backup_case, tmp_path, applied):
+    content, store, images, item = backup_case
+    restore_archive(store, images, content)
+    photo = BytesIO()
+    Image.new("RGB", (64, 64), "white").save(photo, format="PNG")
+    url = images.beautify(photo.getvalue())["beautified_url"]
+
+    def set_preview(state):
+        state["items"][0]["beautified_url"] = url
+        if applied:
+            state["items"][0]["image_url"] = url
+        state["ai"]["beautify_configuration"] = {"encrypted_key": "private-beautify-key"}
+        state["ai"]["beautify_jobs"] = {"private-job": {"owner": "private-claim-token"}}
+
+    store.update(set_preview)
+    exported = make_archive(store, images)
+    with zipfile.ZipFile(BytesIO(exported)) as archive:
+        manifest = archive.read("manifest.json")
+        assert b"private-beautify-key" not in manifest
+        assert b"private-claim-token" not in manifest
+    target = Store(tmp_path / "beautified-roundtrip")
+    target_images = ImagePipeline(target.root / "images")
+    assert restore_archive(target, target_images, exported)["ok"]
+    restored = target.read()["items"][0]
+    assert restored["beautified_url"] == url
+    assert restored["image_url"] == (url if applied else item["original_url"])
+    for ref in (url, item["original_url"]):
+        name = ref.rsplit("/", 1)[1]
+        assert target_images.resolve(name).read_bytes() == images.resolve(name).read_bytes()
+    assert target.read()["ai"] == {}
+
+
+@pytest.mark.parametrize("invalid", ["https://example.com/image.jpg", "/api/images/../../secret", "wrong"])
+def test_backup_rejects_invalid_beautified_url(backup_case, invalid):
+    content, _, _, _ = backup_case
+    data, _ = backup_module.read_archive(content)
+    data["items"][0]["beautified_url"] = invalid
+    with pytest.raises(ValueError):
+        backup_module.validate_data(data)
