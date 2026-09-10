@@ -1,0 +1,325 @@
+.account-entry {
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 32px 20px;
+  gap: 24px;
+  background:
+    radial-gradient(ellipse at 20% 10%, #eeedf8 0, transparent 60%), #fafafd;
+}
+.edition-online .bottom-nav {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+.share-guest {
+  max-width: 1260px;
+  margin: auto;
+  padding: 28px 40px 48px;
+}
+.share-brand {
+  display: flex;
+  align-items: center;
+  gap: 22px;
+  margin-bottom: 40px;
+}
+.share-guest-layout {
+  display: grid;
+  grid-template-columns: 320px minmax(0, 1fr);
+  gap: 48px;
+  align-items: start;
+}
+.share-question {
+  position: sticky;
+  top: 24px;
+}
+.share-question h1 {
+  font-size: 26px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.share-reply {
+  margin-top: 32px;
+}
+.share-reply h2 {
+  font-size: 20px;
+  margin: 0;
+}
+.share-item-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+.shared-item {
+  position: relative;
+  background: #fff;
+  border: 1px solid #e8e8ee;
+  border-radius: 20px;
+  padding: 12px;
+  text-align: left;
+  min-width: 0;
+  transition:
+    border-color 0.18s,
+    box-shadow 0.18s;
+}
+.shared-item:disabled {
+  opacity: 1;
+  cursor: default;
+}
+.shared-item.selected {
+  border-color: #786998;
+  box-shadow: 0 0 0 2px #ded9ec;
+}
+.shared-item strong,
+.shared-item small {
+  display: block;
+  margin-top: 6px;
+  overflow-wrap: anywhere;
+}
+.shared-item small {
+  color: #8b8892;
+}
+.shared-photo {
+  width: 100%;
+  aspect-ratio: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #fafafa;
+  border-radius: 14px;
+  color: #a4a2ae;
+}
+.shared-photo img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  border-radius: 14px;
+}
+.share-selected {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  background: #786998;
+  color: white;
+  border-radius: 20px;
+  padding: 5px 9px;
+  font-size: 11px;
+}
+.share-mobile-action {
+  display: none;
+}
+.share-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+  margin-top: 30px;
+}
+.share-list-card {
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.share-list-card span,
+.share-list-card small {
+  color: #8b8892;
+}
+.share-list-card strong {
+  font-size: 18px;
+  overflow-wrap: anywhere;
+}
+.share-preview-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+}
+.share-preview-grid figure {
+  min-width: 0;
+  margin: 0;
+}
+.share-preview-grid figcaption {
+  font-size: 13px;
+  margin-top: 10px;
+  overflow-wrap: anywhere;
+}
+.share-preview-grid figcaption small {
+  display: block;
+  color: #8b8892;
+  margin-top: 4px;
+}
+.share-preview-grid .garment-image {
+  aspect-ratio: 1;
+}
+.share-question p,
+.sharing-page p {
+  overflow-wrap: anywhere;
+}
+.share-garments .studio-picker-categories {
+  margin-bottom: 20px;
+}
+@media (max-width: 760px) {
+  .share-guest {
+    padding: 22px 20px 110px;
+  }
+  .share-brand {
+    margin-bottom: 28px;
+  }
+  .share-guest-layout {
+    display: flex;
+    flex-direction: column;
+    gap: 28px;
+  }
+  .share-question {
+    position: static;
+    display: contents;
+  }
+  .share-question > .account-mark {
+    display: none;
+  }
+  .share-question h1 {
+    font-size: 24px;
+    margin: 0;
+  }
+  .share-question > p {
+    margin: -15px 0 0;
+  }
+  .share-reply {
+    order: 5;
+    margin-top: 0;
+    width: 100%;
+    scroll-margin-top: 20px;
+  }
+  .share-garments {
+    width: 100%;
+  }
+  .share-item-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+  }
+  .share-mobile-action {
+    display: block;
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    padding: 16px 20px calc(16px + env(safe-area-inset-bottom));
+    background: #ffffffed;
+    border-top: 1px solid #ededf3;
+    backdrop-filter: blur(12px);
+  }
+  .share-mobile-action .button {
+    width: 100%;
+  }
+  .share-list {
+    grid-template-columns: 1fr;
+  }
+  .share-preview-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .sharing-page .page-heading {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 12px;
+    padding-right: 0;
+  }
+  .sharing-page .page-heading > .row {
+    padding-right: 90px;
+  }
+  .sharing-page .page-heading > .button {
+    width: 100%;
+  }
+  .sharing-page .page-heading h1 {
+    font-size: 24px;
+  }
+  .account-entry {
+    justify-content: flex-start;
+    padding-top: 44px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .shared-item {
+    transition: none;
+  }
+}
+.account-entry > .settings-card,
+.account-card {
+  width: 100%;
+  max-width: 440px;
+}
+.account-card h1 {
+  font-size: 28px;
+  line-height: 1.3;
+  margin: 0 0 12px;
+}
+.account-mark {
+  width: 52px;
+  height: 52px;
+  flex: 0 0 auto;
+  border-radius: 18px;
+  background: #efedf8;
+  color: #716293;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.account-fields {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+}
+.account-fields > .text-button {
+  align-self: center;
+}
+.online-notice {
+  padding: 20px;
+  border: 1px solid var(--line, #e9e9ef);
+  border-radius: 20px;
+  background: #f8f8fc;
+}
+.migration-counts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+.migration-counts > div {
+  padding: 12px;
+  border-radius: 14px;
+  background: #f4f4f8;
+}
+.migration-counts strong,
+.migration-counts span {
+  display: block;
+}
+.migration-counts span {
+  font-size: 12px;
+  color: #757580;
+}
+.migration-conflicts {
+  max-height: 160px;
+  overflow: auto;
+  font-size: 13px;
+}
+.online-empty {
+  padding: 32px 24px;
+  border-radius: 22px;
+  background: linear-gradient(125deg, #efedf8, #f5f8fa);
+  margin-bottom: 24px;
+}
+.online-empty h2 {
+  margin-top: 0;
+}
+@media (min-width: 1050px) {
+  .edition-online .home-page > .online-empty {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+  .edition-online .home-page > .home-shortcuts {
+    grid-column: 1;
+    grid-row: 3;
+  }
+  .edition-online .home-page > .home-recent {
+    grid-column: 2;
+    grid-row: 3;
+  }
+}

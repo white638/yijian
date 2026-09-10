@@ -8,15 +8,18 @@ import {
 } from "react";
 import { api } from "./api";
 import { Check, Info } from "lucide-react";
-import type { AppState } from "./types";
+import type { AppState, Outfit } from "./types";
+import type { AccountUser } from "./edition";
 export type NoticeTone = "success" | "info";
 interface AppContext {
+  account?: AccountUser;
+  signOut?: () => Promise<void>;
   state: AppState;
   refresh: () => Promise<void>;
   notify: (text: string, tone?: NoticeTone) => void;
   openItem: (id: string) => void;
   openAdd: () => void;
-  openOutfit: (id?: string) => void;
+  openOutfit: (id?: string, draft?: Partial<Outfit>) => void;
   openPlan: (ids: string[], name?: string, outfitId?: string) => void;
   navigate: (page: string) => void;
 }
@@ -27,32 +30,46 @@ export const useApp = () => {
   return c;
 };
 export const AppProvider = Context.Provider;
-export function useSnapshot() {
+export function useSnapshot(options?: { online?: boolean }) {
   const [state, setState] = useState<AppState | null>(null);
   const [error, setError] = useState("");
   const sequence = useRef(0);
+  const mounted = useRef(true);
   const refresh = async () => {
+    if (!mounted.current) return;
     const token = ++sequence.current;
     const next = await api<AppState>("/state");
-    if (token === sequence.current) setState(next);
+    if (mounted.current && token === sequence.current) setState(next);
   };
   useEffect(() => {
+    mounted.current = true;
     let active = true;
     const params = new URLSearchParams(location.hash.slice(1));
     const code = params.get("open");
     if (code)
       history.replaceState(null, "", location.pathname + location.search);
-    api("/session", {
-      method: "POST",
-      ...(code ? { body: JSON.stringify({ code }) } : {}),
-    })
-      .then(() => refresh())
+    (options?.online
+      ? Promise.resolve()
+      : api("/session", {
+          method: "POST",
+          ...(code ? { body: JSON.stringify({ code }) } : {}),
+        })
+    )
+      .then(() => {
+        if (active) return refresh();
+      })
       .catch((e) => {
         if (active)
-          setError(code ? e.message : "请从衣间启动窗口打开本机入口。");
+          setError(
+            options?.online || code
+              ? e.message
+              : "请从衣间启动窗口打开本机入口。",
+          );
       });
     return () => {
       active = false;
+      mounted.current = false;
+      sequence.current++;
     };
   }, []);
   return { state, error, refresh };

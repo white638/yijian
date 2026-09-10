@@ -219,6 +219,7 @@ export interface Preferences {
   closet_scope: string;
 }
 export interface AppState {
+  edition?: "online" | "local";
   settings: {
     name: string;
     onboarded: boolean;
@@ -231,7 +232,12 @@ export interface AppState {
   wear_events: WearEvent[];
   trips: Trip[];
   ai: AISettings;
-  features: { background_removal: boolean; background_removal_ready: boolean };
+  features: {
+    background_removal: boolean;
+    background_removal_ready: boolean;
+    online?: boolean;
+    capabilities?: Record<string, boolean>;
+  };
   insights: {
     total: number;
     available: number;

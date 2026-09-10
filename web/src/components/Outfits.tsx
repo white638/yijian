@@ -122,21 +122,24 @@ export function ItemPicker({
 }
 export function OutfitEditor({
   outfit,
+  initialDraft,
   onClose,
 }: {
   outfit?: Outfit;
+  initialDraft?: Partial<Outfit>;
   onClose: () => void;
 }) {
   const { state, refresh, notify, openPlan } = useApp();
-  const [ids, setIds] = useState(outfit?.item_ids || []);
+  const initial = outfit || initialDraft;
+  const [ids, setIds] = useState(initial?.item_ids || []);
   const [layout, setLayout] = useState<OutfitLayout>(() =>
-    syncLayout(outfit?.layout, outfit?.item_ids || [], state.items),
+    syncLayout(initial?.layout, initial?.item_ids || [], state.items),
   );
   const [source, setSource] = useState<Outfit["source"]>(
-    outfit?.source || "manual",
+    initial?.source || "manual",
   );
-  const [name, setName] = useState(outfit?.name || "");
-  const [notes, setNotes] = useState(outfit?.notes || "");
+  const [name, setName] = useState(initial?.name || "");
+  const [notes, setNotes] = useState(initial?.notes || "");
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const [wearDate, setWearDate] = useState(today());

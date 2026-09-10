@@ -10,6 +10,8 @@ import { useApp } from "../Store";
 import { categories, type Category, itemName, dateLabel } from "../types";
 import { Button, Garment, Empty, Field, Sheet } from "../components/UI";
 import { FeatureIcon } from "../components/FeatureIcon";
+import { feature, online } from "../edition";
+import { Share2 } from "lucide-react";
 export function Wardrobe() {
   const { state, openItem, openAdd, navigate } = useApp();
   const [category, setCategory] = useState("all");
@@ -79,6 +81,14 @@ export function Wardrobe() {
         )}
       </div>
       <div className="wardrobe-shortcuts">
+        {online(state) && feature(state, "sharing") && (
+          <button onClick={() => navigate("shares")}>
+            <span>
+              <Share2 size={23} />
+            </span>
+            分享衣柜
+          </button>
+        )}
         <button onClick={openAdd}>
           <span className="illustrated-shortcut">
             <FeatureIcon name="add" />

@@ -40,5 +40,44 @@ jobs:
         working-directory: web
       - run: npm run build
         working-directory: web
+      - run: npm run build:online
+        working-directory: web
       - run: npm audit --audit-level=high
         working-directory: web
+  online:
+    name: Accounts (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: online/package-lock.json
+      - run: npm ci
+        working-directory: online
+      - run: npm run check
+        working-directory: online
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r requirements.txt
+      - run: npm test
+        working-directory: online
+        env:
+          YIJIAN_TEST_PYTHON: python
+      - run: npm audit --audit-level=high
+        working-directory: online
+  container:
+    name: Self-host container
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -f online/Dockerfile -t yijian-account:test .
+      - run: docker run -d --name yijian-test -p 3117:3117 -e BETTER_AUTH_SECRET=ci-only-independent-authentication-secret yijian-account:test
+      - run: curl --retry 15 --retry-connrefused --retry-delay 1 --fail http://127.0.0.1:3117/api/health
+      - if: always()
+        run: docker logs yijian-test

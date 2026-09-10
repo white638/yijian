@@ -13,6 +13,7 @@ import {
 import { templatePlacements } from "../outfit-layout";
 import { Button, Collage, ErrorText, Field, Garment } from "./UI";
 import { OutfitCanvas } from "./OutfitCanvas";
+import { feature, online } from "../edition";
 
 const modes = [
   { value: "free", title: "自由拖动", help: "自己摆放每件单品", Icon: Move },
@@ -64,7 +65,12 @@ export function OutfitWorkspace({
   const [keepSelected, setKeepSelected] = useState(false);
   const lockedLimitExceeded = keepSelected && ids.length > MAX_LOCKED_ITEMS;
   const host = ["codex", "claude-code"].includes(state.ai.provider);
-  const ai = state.ai.capabilities.text && !host;
+  const onlineEdition = online(state);
+  const ai =
+    !onlineEdition &&
+    feature(state, "ai") &&
+    state.ai.capabilities.text &&
+    !host;
   const chosen = ids
     .map((id) => state.items.find((i) => i.id === id))
     .filter((i) => !!i);
@@ -104,8 +110,12 @@ export function OutfitWorkspace({
           >
             <Icon size={21} aria-hidden="true" />
             <span>
-              <strong>{title}</strong>
-              <small>{help}</small>
+              <strong>
+                {value === "ai" && onlineEdition ? "规则推荐" : title}
+              </strong>
+              <small>
+                {value === "ai" && onlineEdition ? "按气温和场合组合" : help}
+              </small>
             </span>
           </button>
         ))}
@@ -119,11 +129,13 @@ export function OutfitWorkspace({
             >
               <strong>{ai ? "AI 搭配推荐" : "规则搭配推荐"}</strong>
               <p className="small muted">
-                {ai
-                  ? "根据衣柜、气温和场合生成搭配，使用已配置的模型服务。"
-                  : host
-                    ? `可在 ${state.ai.provider === "codex" ? "Codex 中运行 $yijian" : "Claude Code 中运行 /yijian"} 请求 AI 搭配；网页中先提供规则推荐。`
-                    : "当前未连接可直接调用的 AI 文本模型，先按衣柜、气温和场合提供规则推荐。"}
+                {onlineEdition
+                  ? "根据已确认、当前可穿的衣物，参考气温、场合与穿着记录组合搭配。"
+                  : ai
+                    ? "根据衣柜、气温和场合生成搭配，使用已配置的模型服务。"
+                    : host
+                      ? `可在 ${state.ai.provider === "codex" ? "Codex 中运行 $yijian" : "Claude Code 中运行 /yijian"} 请求 AI 搭配；网页中先提供规则推荐。`
+                      : "当前未连接可直接调用的 AI 文本模型，先按衣柜、气温和场合提供规则推荐。"}
               </p>
               <div className="form-grid">
                 <Field label="参考气温（°C）">

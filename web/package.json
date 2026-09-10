@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite --host 127.0.0.1",
     "build": "tsc -b && vite build",
+    "build:online": "tsc -b && vite build --outDir dist-online --mode online",
     "test": "vitest run"
   },
   "dependencies": {

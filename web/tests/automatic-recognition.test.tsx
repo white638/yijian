@@ -292,6 +292,7 @@ it("stops polling after processing completes even if the garment still needs con
   state.items = [{ ...shirt, confirmed: false, ai_status: "processing" }];
   mocks.snapshot.mockReturnValue({ state, refresh: mocks.refresh, error: "" });
   const view = render(<App />);
+  await act(async () => {});
   await act(async () => {
     await vi.advanceTimersByTimeAsync(4000);
   });

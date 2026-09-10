@@ -1,0 +1,36 @@
+{
+  "name": "@yijian/online",
+  "version": "0.3.0",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "engines": { "node": ">=24.15.0" },
+  "scripts": {
+    "dev": "tsx src/node.ts",
+    "start": "tsx src/node.ts",
+    "check": "tsc --noEmit",
+    "test": "vitest run",
+    "dev:worker": "wrangler dev",
+    "deploy:worker": "wrangler deploy"
+  },
+  "dependencies": {
+    "@better-auth/kysely-adapter": "1.7.3",
+    "@hono/node-server": "2.1.1",
+    "better-auth": "1.7.3",
+    "fflate": "0.8.3",
+    "hono": "4.13.7",
+    "kysely": "0.29.5",
+    "tsx": "4.23.13",
+    "zod": "4.6.1"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "5.20260910.1",
+    "@types/node": "24.13.4",
+    "typescript": "7.0.2",
+    "vitest": "4.1.11",
+    "wrangler": "4.130.0"
+  },
+  "overrides": {
+    "miniflare": { "sharp": "0.35.4" }
+  }
+}

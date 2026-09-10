@@ -4,6 +4,8 @@ Yijian application source is distributed under the MIT License. Its Python and J
 
 The application uses FastAPI, Uvicorn, Pydantic, Pillow, HTTPX, python-multipart, cryptography, React, Vite and a UI icon library. Dependency versions are recorded in the requirements files and `web/package-lock.json`.
 
+The account edition uses Hono, Better Auth, Kysely, Zod, fflate and the Node SQLite adapter. Their versions and transitive dependencies are recorded in `online/package-lock.json`; their respective license texts remain in the distributed packages. Cloudflare Workers, D1, R2 and Vercel are external hosting services with their own service terms and charges.
+
 ## Image processing
 
 - [rembg](https://github.com/danielgatis/rembg) is MIT-licensed. Its license is reproduced in `licenses/rembg-LICENSE.txt`.

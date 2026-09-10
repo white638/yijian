@@ -1,0 +1,17 @@
+services:
+  yijian:
+    build:
+      context: ..
+      dockerfile: online/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3117:3117"
+    environment:
+      PUBLIC_ORIGIN: ${PUBLIC_ORIGIN:-http://127.0.0.1:3117}
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?Set a random secret of at least 32 characters}
+      REGISTRATION_MODE: ${REGISTRATION_MODE:-invite}
+      INVITE_CODE: ${INVITE_CODE:?Set an invite code of at least 16 characters}
+    volumes:
+      - wardrobe:/data
+volumes:
+  wardrobe:

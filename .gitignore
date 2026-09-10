@@ -9,6 +9,14 @@ __pycache__/
 .ruff_cache/
 web/node_modules/
 web/dist/
+web/dist-online/
+online/node_modules/
+online/dist/
+online/.wrangler/
+online/.dev.vars*
+!online/.dev.vars.example
+online/*.tsbuildinfo
+.vercel/
 web/*.tsbuildinfo
 *.sqlite3*
 *.log

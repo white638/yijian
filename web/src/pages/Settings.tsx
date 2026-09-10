@@ -31,8 +31,12 @@ import {
 import { AIConnect } from "../components/AIConnect";
 import { ImageBeautySettings } from "../components/ImageBeautySettings";
 import { ItemPicker } from "../components/Outfits";
+import { online, feature } from "../edition";
+import { AccountCard } from "../components/Account";
+import { Migration } from "../components/Migration";
 export function Settings() {
-  const { state, refresh, notify, navigate } = useApp();
+  const { state, refresh, notify, navigate, account, signOut } = useApp();
+  const recommendationsAvailable = feature(state, "ai");
   const [name, setName] = useState(state.settings.name);
   const [prefs, setPrefs] = useState<Preferences>(state.settings.preferences);
   const [pairA, setPairA] = useState("");
@@ -51,7 +55,7 @@ export function Settings() {
         "PATCH",
       );
       await refresh();
-      notify("偏好已保存。");
+      notify(recommendationsAvailable ? "偏好已保存。" : "个人资料已保存。");
     } catch (e) {
       setError(failure(e));
     } finally {
@@ -109,17 +113,40 @@ export function Settings() {
       </div>
       <div className="settings-columns">
         <div className="stack">
-          <section className="settings-card" id="ai">
-            <AIConnect />
-          </section>
-          <section className="settings-card" id="beautify">
-            <ImageBeautySettings />
-          </section>
+          {account && signOut && (
+            <AccountCard account={account} signOut={signOut} />
+          )}
+          {online(state) ? (
+            <section className="settings-card stack">
+              <h2>在线衣柜</h2>
+              <p className="muted">
+                整理衣物、制作穿搭，并通过私密链接邀请朋友给建议。
+              </p>
+              <Button kind="secondary" onClick={() => navigate("shares")}>
+                我的分享
+              </Button>
+              <p className="small muted">
+                AI
+                识别、图片美化与自动去背景暂未在此实例开放。完整备份可以带到本机版继续使用这些功能。
+              </p>
+            </section>
+          ) : (
+            <>
+              <section className="settings-card" id="ai">
+                <AIConnect />
+              </section>
+              <section className="settings-card" id="beautify">
+                <ImageBeautySettings />
+              </section>
+            </>
+          )}
         </div>
         <div className="stack">
           <section className="settings-card stack">
-            <h2>穿搭推荐偏好</h2>
-            <p className="muted">把你的习惯告诉衣柜，让建议更贴近生活。</p>
+            <h2>{recommendationsAvailable ? "穿搭推荐偏好" : "个人资料"}</h2>
+            {recommendationsAvailable && (
+              <p className="muted">把你的习惯告诉衣柜，让建议更贴近生活。</p>
+            )}
             <Field label="怎么称呼你">
               <input
                 value={name}
@@ -128,177 +155,201 @@ export function Settings() {
                 maxLength={40}
               />
             </Field>
-            <div className="form-grid">
-              <Field label="所在城市">
-                <input
-                  value={prefs.location}
-                  onChange={(e) =>
-                    setPrefs({ ...prefs, location: e.target.value })
-                  }
-                  placeholder="例如：北京"
-                />
-              </Field>
-              <Field label="参考气温（°C）" hint="用于推荐，可按当日情况调整。">
-                <input
-                  type="number"
-                  min="-40"
-                  max="55"
-                  value={prefs.temperature}
-                  onChange={(e) =>
-                    setPrefs({ ...prefs, temperature: Number(e.target.value) })
-                  }
-                />
-              </Field>
-            </div>
-            <Field label="温度敏感度">
-              <select
-                value={prefs.sensitivity}
-                onChange={(e) =>
-                  setPrefs({ ...prefs, sensitivity: e.target.value })
-                }
-              >
-                <option value="cold">比较怕冷</option>
-                <option value="normal">恰到好处</option>
-                <option value="hot">比较怕热</option>
-              </select>
-            </Field>
-            <Field label="给造型师的备注">
-              <textarea
-                value={prefs.notes}
-                onChange={(e) => setPrefs({ ...prefs, notes: e.target.value })}
-                rows={3}
-                maxLength={2000}
-                placeholder="例如：喜欢宽松一点，工作日少穿亮色"
-              />
-            </Field>
-            <Field label="用于建议的衣橱">
-              <select
-                value={prefs.closet_scope}
-                onChange={(e) =>
-                  setPrefs({ ...prefs, closet_scope: e.target.value })
-                }
-              >
-                <option value="all">所有衣橱</option>
-                {closets.map((c) => (
-                  <option key={c}>{c}</option>
-                ))}
-              </select>
-            </Field>
-            <details className="details">
-              <summary>排除的衣物 · {prefs.excluded_ids.length} 件</summary>
-              <p className="small muted">这些衣物仍会保留，推荐时暂时跳过。</p>
-              <ItemPicker
-                selected={prefs.excluded_ids}
-                onChange={(ids) => setPrefs({ ...prefs, excluded_ids: ids })}
-              />
-            </details>
-            <details className="details">
-              <summary>不搭的组合 · {prefs.blocked_pairs.length} 组</summary>
-              <div className="stack tight">
-                <p className="small muted">选两件衣物，推荐时避开同时出现。</p>
+            {recommendationsAvailable && (
+              <>
                 <div className="form-grid">
-                  {[
-                    [pairA, setPairA, "第一件"],
-                    [pairB, setPairB, "第二件"],
-                  ].map(([value, setter, label], index) => (
-                    <Field label={label as string} key={index}>
-                      <select
-                        value={value as string}
-                        onChange={(e) =>
-                          (setter as (v: string) => void)(e.target.value)
-                        }
-                      >
-                        <option value="">选择衣物</option>
-                        {state.items.map((i) => (
-                          <option value={i.id} key={i.id}>
-                            {itemName(i)}
-                          </option>
-                        ))}
-                      </select>
-                    </Field>
-                  ))}
-                </div>
-                <Button
-                  kind="secondary"
-                  disabled={!pairA || !pairB || pairA === pairB}
-                  onClick={addPair}
-                >
-                  <Plus size={16} />
-                  加入限制
-                </Button>
-                {prefs.blocked_pairs.map((pair, index) => (
-                  <div className="row between small" key={pair.join("-")}>
-                    <span>
-                      {pair
-                        .map((id) => {
-                          const i = state.items.find((x) => x.id === id);
-                          return i ? itemName(i) : "已删除衣物";
-                        })
-                        .join(" ＋ ")}
-                    </span>
-                    <IconButton
-                      label="移除组合限制"
-                      onClick={() =>
+                  <Field label="所在城市">
+                    <input
+                      value={prefs.location}
+                      onChange={(e) =>
+                        setPrefs({ ...prefs, location: e.target.value })
+                      }
+                      placeholder="例如：北京"
+                    />
+                  </Field>
+                  <Field
+                    label="参考气温（°C）"
+                    hint="用于推荐，可按当日情况调整。"
+                  >
+                    <input
+                      type="number"
+                      min="-40"
+                      max="55"
+                      value={prefs.temperature}
+                      onChange={(e) =>
                         setPrefs({
                           ...prefs,
-                          blocked_pairs: prefs.blocked_pairs.filter(
-                            (_, n) => n !== index,
-                          ),
+                          temperature: Number(e.target.value),
                         })
                       }
+                    />
+                  </Field>
+                </div>
+                <Field label="温度敏感度">
+                  <select
+                    value={prefs.sensitivity}
+                    onChange={(e) =>
+                      setPrefs({ ...prefs, sensitivity: e.target.value })
+                    }
+                  >
+                    <option value="cold">比较怕冷</option>
+                    <option value="normal">恰到好处</option>
+                    <option value="hot">比较怕热</option>
+                  </select>
+                </Field>
+                <Field label="给造型师的备注">
+                  <textarea
+                    value={prefs.notes}
+                    onChange={(e) =>
+                      setPrefs({ ...prefs, notes: e.target.value })
+                    }
+                    rows={3}
+                    maxLength={2000}
+                    placeholder="例如：喜欢宽松一点，工作日少穿亮色"
+                  />
+                </Field>
+                <Field label="用于建议的衣橱">
+                  <select
+                    value={prefs.closet_scope}
+                    onChange={(e) =>
+                      setPrefs({ ...prefs, closet_scope: e.target.value })
+                    }
+                  >
+                    <option value="all">所有衣橱</option>
+                    {closets.map((c) => (
+                      <option key={c}>{c}</option>
+                    ))}
+                  </select>
+                </Field>
+                <details className="details">
+                  <summary>排除的衣物 · {prefs.excluded_ids.length} 件</summary>
+                  <p className="small muted">
+                    这些衣物仍会保留，推荐时暂时跳过。
+                  </p>
+                  <ItemPicker
+                    selected={prefs.excluded_ids}
+                    onChange={(ids) =>
+                      setPrefs({ ...prefs, excluded_ids: ids })
+                    }
+                  />
+                </details>
+                <details className="details">
+                  <summary>
+                    不搭的组合 · {prefs.blocked_pairs.length} 组
+                  </summary>
+                  <div className="stack tight">
+                    <p className="small muted">
+                      选两件衣物，推荐时避开同时出现。
+                    </p>
+                    <div className="form-grid">
+                      {[
+                        [pairA, setPairA, "第一件"],
+                        [pairB, setPairB, "第二件"],
+                      ].map(([value, setter, label], index) => (
+                        <Field label={label as string} key={index}>
+                          <select
+                            value={value as string}
+                            onChange={(e) =>
+                              (setter as (v: string) => void)(e.target.value)
+                            }
+                          >
+                            <option value="">选择衣物</option>
+                            {state.items.map((i) => (
+                              <option value={i.id} key={i.id}>
+                                {itemName(i)}
+                              </option>
+                            ))}
+                          </select>
+                        </Field>
+                      ))}
+                    </div>
+                    <Button
+                      kind="secondary"
+                      disabled={!pairA || !pairB || pairA === pairB}
+                      onClick={addPair}
                     >
-                      <Trash2 size={16} />
-                    </IconButton>
+                      <Plus size={16} />
+                      加入限制
+                    </Button>
+                    {prefs.blocked_pairs.map((pair, index) => (
+                      <div className="row between small" key={pair.join("-")}>
+                        <span>
+                          {pair
+                            .map((id) => {
+                              const i = state.items.find((x) => x.id === id);
+                              return i ? itemName(i) : "已删除衣物";
+                            })
+                            .join(" ＋ ")}
+                        </span>
+                        <IconButton
+                          label="移除组合限制"
+                          onClick={() =>
+                            setPrefs({
+                              ...prefs,
+                              blocked_pairs: prefs.blocked_pairs.filter(
+                                (_, n) => n !== index,
+                              ),
+                            })
+                          }
+                        >
+                          <Trash2 size={16} />
+                        </IconButton>
+                      </div>
+                    ))}
                   </div>
-                ))}
-              </div>
-            </details>
+                </details>
+              </>
+            )}
             <Button
               busy={busy === "preferences"}
               disabled={!!busy}
               onClick={save}
             >
-              保存我的偏好
+              {recommendationsAvailable ? "保存我的偏好" : "保存个人资料"}
             </Button>
           </section>
-          <section className="settings-card stack">
-            <h2>数据属于你</h2>
-            <p className="muted">
-              导出衣物、照片、搭配与记录。备份不包含模型密钥或助手授权。
-            </p>
-            <Button
-              kind="secondary"
-              busy={busy === "backup"}
-              disabled={!!busy}
-              onClick={backup}
-            >
-              <Download size={18} />
-              下载衣柜备份
-            </Button>
-            <Button
-              kind="secondary"
-              busy={busy === "restore"}
-              disabled={!!busy || state.items.length > 0}
-              onClick={() => restoreInput.current?.click()}
-            >
-              <ArchiveRestore size={18} />
-              从备份恢复
-            </Button>
-            <input
-              ref={restoreInput}
-              hidden
-              type="file"
-              accept=".zip,application/zip"
-              onChange={(e) => {
-                const f = e.target.files?.[0];
-                if (f) restore(f);
-                e.target.value = "";
-              }}
-            />
-            <small className="muted">
-              恢复需使用空衣柜，支持兼容的衣柜备份。
-            </small>
-          </section>
+          {online(state) ? (
+            <Migration />
+          ) : (
+            <section className="settings-card stack">
+              <h2>数据属于你</h2>
+              <p className="muted">
+                导出衣物、照片、搭配与记录。备份不包含模型密钥或助手授权。
+              </p>
+              <Button
+                kind="secondary"
+                busy={busy === "backup"}
+                disabled={!!busy}
+                onClick={backup}
+              >
+                <Download size={18} />
+                下载衣柜备份
+              </Button>
+              <Button
+                kind="secondary"
+                busy={busy === "restore"}
+                disabled={!!busy || state.items.length > 0}
+                onClick={() => restoreInput.current?.click()}
+              >
+                <ArchiveRestore size={18} />
+                从备份恢复
+              </Button>
+              <input
+                ref={restoreInput}
+                hidden
+                type="file"
+                accept=".zip,application/zip"
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  if (f) restore(f);
+                  e.target.value = "";
+                }}
+              />
+              <small className="muted">
+                恢复需使用空衣柜，支持兼容的衣柜备份。
+              </small>
+            </section>
+          )}
           <ErrorText error={error} />
           <p className="small muted center">
             衣间 · 开放源码的个人衣柜

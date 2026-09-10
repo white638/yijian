@@ -35,6 +35,8 @@ import {
   type ItemAttributeDraft,
 } from "../item-attributes";
 import { ItemExtraDetails } from "./ItemExtraDetails";
+import { feature, online } from "../edition";
+import { normalizeUpload } from "../online-images";
 const accessoryCategoryHint =
   "帽子、围巾、腰带、首饰、手表等归入配饰；包袋请单独选择“包袋”。";
 function UploadPreview({ file }: { file: File }) {
@@ -52,7 +54,7 @@ function UploadPreview({ file }: { file: File }) {
   );
 }
 export function AddSheet({ onClose }: { onClose: () => void }) {
-  const { refresh, notify, openItem } = useApp();
+  const { state, refresh, notify, openItem } = useApp();
   const photo = useRef<HTMLInputElement>(null);
   const camera = useRef<HTMLInputElement>(null);
   const [files, setFiles] = useState<File[]>([]);
@@ -82,9 +84,20 @@ export function AddSheet({ onClose }: { onClose: () => void }) {
       } else {
         if (!files.length) throw new Error("先选择衣物照片。");
         const form = new FormData();
-        files.forEach((f) => form.append("files", f));
-        form.append("remove_background", String(remove));
-        form.append("auto_analyze", String(autoAnalyze));
+        if (files.length > 20) throw new Error("每次最多添加 20 张照片。");
+        for (const file of files)
+          form.append(
+            "files",
+            online(state) ? await normalizeUpload(file) : file,
+          );
+        form.append(
+          "remove_background",
+          String(remove && feature(state, "background_removal")),
+        );
+        form.append(
+          "auto_analyze",
+          String(autoAnalyze && feature(state, "ai")),
+        );
         const result = await api<{ items: Item[]; warnings: string[] }>(
           "/items/upload",
           { method: "POST", body: form },
@@ -172,16 +185,18 @@ export function AddSheet({ onClose }: { onClose: () => void }) {
             setManual(false);
           }}
         />
-        <button
-          type="button"
-          disabled={busy}
-          className="list-row"
-          onClick={() => setLinkImport(true)}
-        >
-          <Link2 size={22} />
-          <span>从链接导入</span>
-          <span className="muted">商品页或图片链接</span>
-        </button>
+        {feature(state, "product_import") && (
+          <button
+            type="button"
+            disabled={busy}
+            className="list-row"
+            onClick={() => setLinkImport(true)}
+          >
+            <Link2 size={22} />
+            <span>从链接导入</span>
+            <span className="muted">商品页或图片链接</span>
+          </button>
+        )}
         <button
           type="button"
           disabled={busy}
@@ -225,13 +240,19 @@ export function AddSheet({ onClose }: { onClose: () => void }) {
           </>
         ) : (
           <>
-            <ImageImportOptions
-              removeBackground={remove}
-              onBackgroundChange={setRemove}
-              autoAnalyze={autoAnalyze}
-              onAutoAnalyzeChange={setAutoAnalyze}
-              busy={busy}
-            />
+            {online(state) ? (
+              <p className="small muted">
+                照片会先调整大小再上传。添加后可填写或调整衣物信息。
+              </p>
+            ) : (
+              <ImageImportOptions
+                removeBackground={remove}
+                onBackgroundChange={setRemove}
+                autoAnalyze={autoAnalyze}
+                onAutoAnalyzeChange={setAutoAnalyze}
+                busy={busy}
+              />
+            )}
             {files.length > 0 && (
               <div className="file-list" aria-busy={busy}>
                 {files.map((f, index) => (
@@ -372,12 +393,39 @@ export function ItemEditor({
     if (busy) return;
     if (
       kind === "delete" &&
+      !online(state) &&
       !confirm(`删除“${itemName(item)}”？关联搭配和计划会同步更新。`)
     )
       return;
     setBusy(kind);
     setError("");
     try {
+      if (kind === "delete" && online(state)) {
+        const { shares } = await api<{
+          shares: {
+            question: string;
+            status: string;
+            items: { item_id: string }[];
+          }[];
+        }>("/shares");
+        const affected = shares.filter(
+          (share) =>
+            ["active", "closed"].includes(share.status) &&
+            share.items.some((chosen) => chosen.item_id === item.id),
+        );
+        const message = affected.length
+          ? `\n另外，${affected.length} 份相关分享会失效：\n${affected
+              .slice(0, 5)
+              .map((share) => `· ${share.question.slice(0, 80)}`)
+              .join("\n")}`
+          : "";
+        if (
+          !confirm(
+            `删除“${itemName(item)}”？关联搭配和计划会同步更新。${message}`,
+          )
+        )
+          return;
+      }
       let backgroundFailed = false;
       if (kind === "save") {
         if (
@@ -502,24 +550,28 @@ export function ItemEditor({
           />
           {(item.image_url || item.original_url) && (
             <div className="row wrap">
-              <Button
-                kind="secondary"
-                busy={busy === "background"}
-                disabled={!!busy}
-                onClick={() => action("background")}
-              >
-                <WandSparkles size={16} />
-                去背景
-              </Button>
-              <Button
-                kind="secondary"
-                disabled={!!busy}
-                onClick={() => setBeautyOpen(true)}
-              >
-                <Sparkles size={16} />
-                图片美化
-              </Button>
-              {item.original_url && (
+              {feature(state, "background_removal") && (
+                <Button
+                  kind="secondary"
+                  busy={busy === "background"}
+                  disabled={!!busy}
+                  onClick={() => action("background")}
+                >
+                  <WandSparkles size={16} />
+                  去背景
+                </Button>
+              )}
+              {feature(state, "ai") && (
+                <Button
+                  kind="secondary"
+                  disabled={!!busy}
+                  onClick={() => setBeautyOpen(true)}
+                >
+                  <Sparkles size={16} />
+                  图片美化
+                </Button>
+              )}
+              {item.original_url && !online(state) && (
                 <Button
                   kind="ghost"
                   busy={busy === "restore"}
@@ -564,7 +616,8 @@ export function ItemEditor({
               {item.ai_error || "识别未完成，可以手动填写或重新识别。"}
             </p>
           )}
-          {state.ai.capabilities.vision &&
+          {feature(state, "ai") &&
+            state.ai.capabilities.vision &&
             (item.image_url || item.original_url) && (
               <Button
                 kind="secondary"

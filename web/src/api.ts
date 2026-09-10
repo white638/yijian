@@ -16,6 +16,17 @@ const errors: Record<string, string> = {
   invalid_backup: "备份文件无法读取，请选择衣间导出的完整备份。",
   invalid_settings: "请检查填写的设置。",
   private_endpoint_disabled: "此接口地址不允许访问，请检查服务地址。",
+  INVALID_EMAIL_OR_PASSWORD: "邮箱或密码不正确，请检查后重试。",
+  USER_ALREADY_EXISTS: "此邮箱已有账户，请直接登录。",
+  USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL: "此邮箱已有账户，请直接登录。",
+  PASSWORD_TOO_SHORT: "密码长度不足，请至少填写 12 个字符。",
+  registration_closed: "此实例暂未开放注册。",
+  invalid_invite: "邀请码无效，请核对后重试。",
+  invite_required: "请填写邀请码。",
+  preview_expired: "导入预览已过期，请重新选择备份文件。",
+  share_expired: "分享链接已失效。",
+  share_unavailable: "分享链接已失效。",
+  replies_closed: "主人已关闭建议提交。",
 };
 export class RequestError extends Error {
   constructor(
@@ -47,12 +58,23 @@ export async function api<T>(
     throw new Error("暂时无法连接衣柜，请确认服务正在运行。");
   }
   if (!response.ok) {
+    if (
+      response.status === 401 &&
+      !path.startsWith("/auth/") &&
+      !path.startsWith("/share/")
+    )
+      window.dispatchEvent(new Event("yijian:unauthorized"));
     const body = await response.json().catch(() => ({}));
     const d = body.detail;
     const code =
       typeof d === "string" ? d : d?.code || body.code || "request_failed";
     const message =
-      typeof d === "string" && /[\u3400-\u9fff]/.test(d) ? d : undefined;
+      typeof d === "string" && /[\u3400-\u9fff]/.test(d)
+        ? d
+        : typeof body.message === "string" &&
+            /[\u3400-\u9fff]/.test(body.message)
+          ? body.message
+          : undefined;
     throw new RequestError(code, response.status, message);
   }
   if (response.status === 204) return undefined as T;
@@ -64,7 +86,11 @@ export const failure = (e: unknown) =>
   e instanceof Error ? e.message : "操作未完成，请稍后重试。";
 export async function downloadBackup() {
   const r = await fetch("/api/backup", { credentials: "same-origin" });
-  if (!r.ok) throw new Error("备份下载失败，请重试。");
+  if (!r.ok) {
+    if (r.status === 401)
+      window.dispatchEvent(new Event("yijian:unauthorized"));
+    throw new Error("备份下载失败，请重试。");
+  }
   const url = URL.createObjectURL(await r.blob());
   const a = document.createElement("a");
   a.href = url;

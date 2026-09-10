@@ -11,7 +11,11 @@ import {
   ArrowRight,
 } from "lucide-react";
 import { useSnapshot, AppProvider, Toast, type NoticeTone } from "./Store";
-import { send, failure } from "./api";
+import { api, send, failure } from "./api";
+import { onlineBuild, online, type AccountUser } from "./edition";
+import { OnlineEntry } from "./components/Account";
+import { ShareGuest, ShareManager } from "./components/Sharing";
+import type { Outfit } from "./types";
 import { AIConnect } from "./components/AIConnect";
 import { AddSheet, ItemEditor } from "./components/Items";
 import { OutfitEditor, PlanEditor } from "./components/Outfits";
@@ -29,19 +33,77 @@ const routes = new Set([
   "explore",
   "settings",
   "stats",
+  "shares",
 ]);
 const readRoute = () => {
   const s = location.hash.replace("#", "").split("?")[0];
   return routes.has(s) ? s : "home";
 };
 export default function App() {
-  const { state, error: loadError, refresh } = useSnapshot();
+  const [shareToken, setShareToken] = useState(() =>
+    new URLSearchParams(location.hash.slice(1)).get("share"),
+  );
+  const [edition, setEdition] = useState<"local" | "online" | null>(
+    onlineBuild ? "online" : null,
+  );
+  useEffect(() => {
+    const update = () =>
+      setShareToken(new URLSearchParams(location.hash.slice(1)).get("share"));
+    window.addEventListener("hashchange", update);
+    return () => window.removeEventListener("hashchange", update);
+  }, []);
+  useEffect(() => {
+    if (edition || shareToken) return;
+    let active = true;
+    api<{ edition?: string }>("/health")
+      .then((value) => {
+        if (active)
+          setEdition(value?.edition === "online" ? "online" : "local");
+      })
+      .catch(() => {
+        if (active) setEdition("local");
+      });
+    return () => {
+      active = false;
+    };
+  }, [edition, shareToken]);
+  if (shareToken) return <ShareGuest key={shareToken} token={shareToken} />;
+  if (!edition)
+    return (
+      <main className="boot">
+        <span className="brand-word">衣间</span>
+        <p role="status">正在打开你的衣柜…</p>
+      </main>
+    );
+  return edition === "online" ? (
+    <OnlineEntry>
+      {(account, signOut) => (
+        <PrivateApp key={account.id} account={account} signOut={signOut} />
+      )}
+    </OnlineEntry>
+  ) : (
+    <PrivateApp />
+  );
+}
+function PrivateApp({
+  account,
+  signOut,
+}: {
+  account?: AccountUser;
+  signOut?: () => Promise<void>;
+}) {
+  const {
+    state,
+    error: loadError,
+    refresh,
+  } = useSnapshot(account ? { online: true } : undefined);
   const [route, setRoute] = useState(readRoute);
   const [notice, setNotice] = useState("");
   const [noticeTone, setNoticeTone] = useState<NoticeTone>("success");
   const [add, setAdd] = useState(false);
   const [itemId, setItemId] = useState("");
   const [outfitId, setOutfitId] = useState<string | null>(null);
+  const [outfitDraft, setOutfitDraft] = useState<Partial<Outfit> | undefined>();
   const [plan, setPlan] = useState<{
     ids: string[];
     name?: string;
@@ -98,7 +160,14 @@ export default function App() {
     setFinishing(true);
     setError("");
     try {
-      await send("/settings", { onboarded: true }, "PATCH");
+      await send(
+        "/settings",
+        {
+          onboarded: true,
+          ...(account && !state?.settings.name ? { name: account.name } : {}),
+        },
+        "PATCH",
+      );
       await refresh();
       navigate("home");
     } catch (e) {
@@ -122,12 +191,17 @@ export default function App() {
       </main>
     );
   const context = {
+    account,
+    signOut,
     state,
     refresh,
     notify,
     openItem: (id: string) => setItemId(id),
     openAdd: () => setAdd(true),
-    openOutfit: (id?: string) => setOutfitId(id || ""),
+    openOutfit: (id?: string, draft?: Partial<Outfit>) => {
+      setOutfitDraft(draft);
+      setOutfitId(id || "");
+    },
     openPlan: (ids: string[], name?: string, outfitId?: string) =>
       setPlan({ ids, name, outfitId }),
     navigate,
@@ -137,7 +211,7 @@ export default function App() {
     { id: "wardrobe", label: "衣柜", icon: PanelsTopLeft },
     { id: "looks", label: "穿搭", icon: Shirt },
     { id: "explore", label: "探索", icon: Compass },
-  ];
+  ].filter((n) => !online(state) || n.id !== "explore");
   const active = ["packing", "calendar"].includes(route) ? "looks" : route;
   return (
     <AppProvider value={context}>
@@ -147,7 +221,33 @@ export default function App() {
             衣间<span>你的衣物，你的风格</span>
           </a>
           <section className="onboarding-card" aria-busy={finishing}>
-            <AIConnect onFinish={finish} />
+            {online(state) ? (
+              <div className="stack">
+                <h1>欢迎来到衣间</h1>
+                <p className="muted">
+                  从一件常穿的衣服开始，也可以导入已有衣柜。
+                </p>
+                <Button onClick={finish} busy={finishing}>
+                  打开我的衣柜
+                </Button>
+                <Button
+                  kind="secondary"
+                  disabled={finishing}
+                  onClick={async () => {
+                    await finish();
+                    navigate("settings");
+                  }}
+                >
+                  导入已有衣柜
+                </Button>
+                <p className="small muted">
+                  在线版支持衣物整理、自由搭配和朋友建议。AI
+                  与图片美化可在本机版使用。
+                </p>
+              </div>
+            ) : (
+              <AIConnect onFinish={finish} />
+            )}
             {finishing && (
               <p className="muted" role="status">
                 正在打开衣柜…
@@ -155,10 +255,12 @@ export default function App() {
             )}
             <ErrorText error={error} />
           </section>
-          <p className="small muted center">免费开源 · 本地保存 · 随时导出</p>
+          <p className="small muted center">
+            免费开源 · {online(state) ? "私密衣柜" : "本地保存"} · 随时导出
+          </p>
         </main>
       ) : (
-        <div className="app-shell">
+        <div className={`app-shell ${online(state) ? "edition-online" : ""}`}>
           <aside className="desktop-sidebar">
             <button className="brand" onClick={() => navigate("home")}>
               <span className="brand-word">衣间</span>
@@ -225,7 +327,9 @@ export default function App() {
                 <Wardrobe />
               ) : ["looks", "packing", "calendar"].includes(route) ? (
                 <Looks tab={route} />
-              ) : route === "explore" ? (
+              ) : route === "shares" && online(state) ? (
+                <ShareManager />
+              ) : route === "explore" && !online(state) ? (
                 <Explore />
               ) : route === "stats" ? (
                 <Stats />
@@ -279,6 +383,7 @@ export default function App() {
         <OutfitEditor
           key={outfitId || "new"}
           outfit={state.outfits.find((o) => o.id === outfitId)}
+          initialDraft={outfitDraft}
           onClose={() => setOutfitId(null)}
         />
       )}{" "}

@@ -1,0 +1,6 @@
+PUBLIC_ORIGIN=http://localhost:8787
+REGISTRATION_MODE=closed
+# Generate an independent random value of at least 32 characters.
+BETTER_AUTH_SECRET=replace-with-a-new-random-secret-before-use
+# Invite mode requires a separate 16-256 character value.
+# INVITE_CODE=replace-with-a-private-invitation-code

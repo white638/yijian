@@ -14,6 +14,7 @@ import {
 import { useApp } from "../Store";
 import { api, send, failure } from "../api";
 import { FeatureIcon } from "../components/FeatureIcon";
+import { online } from "../edition";
 import {
   type Outfit,
   type Suggestions,
@@ -282,7 +283,20 @@ export function Home() {
           {state.settings.name?.slice(0, 1) || "我"}
         </button>
       </div>
-      <Recommendations />
+      {online(state) ? (
+        <section className="online-empty">
+          <h2>用自己的衣服，搭配新的日常</h2>
+          <p className="muted">自由摆放单品，也可以邀请朋友一起想想怎么穿。</p>
+          <div className="row wrap">
+            <Button onClick={() => openOutfit()}>创建穿搭</Button>
+            <Button kind="secondary" onClick={() => navigate("shares")}>
+              邀请朋友给建议
+            </Button>
+          </div>
+        </section>
+      ) : (
+        <Recommendations />
+      )}
       <section className="home-shortcuts">
         <SectionTitle title="随手用起来" />
         <div className="shortcut-grid">
