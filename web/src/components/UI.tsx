@@ -6,9 +6,18 @@ import {
   useRef,
   type ReactNode,
 } from "react";
-import { ArrowRight, LoaderCircle, Shirt, X } from "lucide-react";
-import type { Item } from "../types";
+import {
+  ArrowRight,
+  Gem,
+  LoaderCircle,
+  Shirt,
+  ShoppingBag,
+  X,
+} from "lucide-react";
+import type { Item, OutfitLayout } from "../types";
 import { itemName } from "../types";
+import { placementStyle, syncLayout } from "../outfit-layout";
+import "../outfit-studio.css";
 export function Button({
   children,
   busy = false,
@@ -126,7 +135,7 @@ export function Sheet({
       <div className="sheet-handle" />
       <header className="sheet-header">
         <h2>{title}</h2>
-        <IconButton label="关闭" onClick={onClose}>
+        <IconButton label="关闭" onClick={onClose} disabled={busy}>
           <X size={22} />
         </IconButton>
       </header>
@@ -184,6 +193,12 @@ export function Garment({
   className?: string;
   processing?: boolean;
 }) {
+  const Placeholder =
+    item.category === "bag"
+      ? ShoppingBag
+      : item.category === "accessory"
+        ? Gem
+        : Shirt;
   return (
     <div
       className={`garment-image ${className} ${processing ? "image-processing" : ""}`}
@@ -192,20 +207,75 @@ export function Garment({
       {item.image_url ? (
         <img src={item.image_url} alt={itemName(item)} loading="lazy" />
       ) : (
-        <Shirt size={40} strokeWidth={1.1} />
+        <Placeholder size={40} strokeWidth={1.1} aria-hidden="true" />
       )}
     </div>
   );
 }
-export function Collage({ ids, items }: { ids: string[]; items: Item[] }) {
+export function Collage({
+  ids,
+  items,
+  expanded = false,
+  layout,
+}: {
+  ids: string[];
+  items: Item[];
+  expanded?: boolean;
+  layout?: OutfitLayout | null;
+}) {
   const chosen = ids
     .map((id) => items.find((i) => i.id === id))
     .filter((i): i is Item => !!i);
+  const shown = expanded ? chosen : chosen.slice(0, 6);
+  const remaining = chosen.length - shown.length;
+  if (layout && !expanded) {
+    const placements = syncLayout(layout, ids, items).placements;
+    return (
+      <div
+        className="collage saved-layout"
+        role="group"
+        aria-label={`搭配预览（${chosen.length} 件）`}
+        style={{ background: layout.background }}
+      >
+        {placements.map((placement) => {
+          const item = chosen.find((i) => i.id === placement.item_id);
+          return item ? (
+            <div
+              key={item.id}
+              className="layout-garment"
+              style={placementStyle(placement)}
+            >
+              <Garment item={item} />
+            </div>
+          ) : null;
+        })}
+      </div>
+    );
+  }
   return (
-    <div className={`collage count-${Math.min(chosen.length, 4)}`}>
-      {chosen.slice(0, 6).map((i) => (
-        <Garment key={i.id} item={i} />
-      ))}
+    <div
+      className={`collage count-${Math.min(chosen.length, 4)} ${expanded ? "expanded" : ""}`}
+      role="group"
+      aria-label={`${expanded ? "搭配全部单品" : "搭配预览"}（${chosen.length} 件）`}
+    >
+      {shown.map((i) =>
+        expanded ? (
+          <figure className="collage-item" key={i.id}>
+            <Garment item={i} />
+            <figcaption>{itemName(i)}</figcaption>
+          </figure>
+        ) : (
+          <Garment key={i.id} item={i} />
+        ),
+      )}
+      {remaining > 0 && (
+        <span
+          className="collage-overflow"
+          aria-label={`另有 ${remaining} 件单品`}
+        >
+          +{remaining}
+        </span>
+      )}
       {chosen.length === 0 && <Shirt size={42} strokeWidth={1} />}
     </div>
   );

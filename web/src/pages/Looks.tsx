@@ -98,7 +98,7 @@ export function Looks({ tab = "looks" }: { tab?: string }) {
               key={o.id}
               onClick={() => openOutfit(o.id)}
             >
-              <Collage ids={o.item_ids} items={state.items} />
+              <Collage ids={o.item_ids} items={state.items} layout={o.layout} />
               <div>
                 <h3>{o.name}</h3>
                 <p>

@@ -100,12 +100,12 @@ describe("persistent wardrobe flows", () => {
     await waitFor(() =>
       expect(mocks.send).toHaveBeenCalledWith(
         "/outfits",
-        {
+        expect.objectContaining({
           name: "周末出门",
           item_ids: ["top", "bottom", "shoes"],
           notes: "",
           source: "manual",
-        },
+        }),
         "POST",
       ),
     );

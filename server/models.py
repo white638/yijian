@@ -5,7 +5,7 @@ from decimal import Decimal, InvalidOperation
 from typing import Literal
 from urllib.parse import urlsplit
 
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, SecretStr, field_validator
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, SecretStr, field_validator, model_validator
 
 Category = Literal["top", "bottom", "dress", "outerwear", "shoes", "bag", "accessory", "other"]
 Status = Literal["available", "laundry", "archived"]
@@ -92,11 +92,40 @@ class ItemPatch(ItemInput):
     pass
 
 
+class OutfitPlacement(StrictModel):
+    item_id: str = Field(min_length=1, max_length=80)
+    x: float = Field(ge=0, le=100, allow_inf_nan=False, strict=True)
+    y: float = Field(ge=0, le=100, allow_inf_nan=False, strict=True)
+    width: float = Field(ge=8, le=85, allow_inf_nan=False, strict=True)
+    rotation: float = Field(ge=-180, le=180, allow_inf_nan=False, strict=True)
+
+
+class OutfitLayout(StrictModel):
+    version: Literal[1] = 1
+    mode: Literal["free", "categories", "collage", "ai"]
+    template: Literal["balanced", "grid", "editorial"]
+    background: str = Field(pattern=r"^#[0-9a-fA-F]{6}$")
+    placements: list[OutfitPlacement] = Field(max_length=24)
+
+    def check_items(self, item_ids: list[str]):
+        placed = [entry.item_id for entry in self.placements]
+        if len(placed) != len(set(placed)) or set(placed) != set(item_ids):
+            raise ValueError("画布中的单品必须与穿搭所选单品一致。")
+        return self
+
+
 class OutfitInput(StrictModel):
     name: str = Field(min_length=1, max_length=120)
     item_ids: list[str] = Field(min_length=1, max_length=24)
     notes: str = Field(default="", max_length=3000)
     source: Literal["manual", "rules", "ai", "assistant"] = "manual"
+    layout: OutfitLayout | None = None
+
+    @model_validator(mode="after")
+    def valid_layout(self):
+        if self.layout is not None:
+            self.layout.check_items(self.item_ids)
+        return self
 
 
 class WearInput(StrictModel):

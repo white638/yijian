@@ -25,6 +25,8 @@ import {
 } from "../types";
 import { Button, Field, Sheet, Garment, ErrorText } from "./UI";
 import { ImageImportOptions, LinkImport } from "./LinkImport";
+const accessoryCategoryHint =
+  "帽子、围巾、腰带、首饰、手表等归入配饰；包袋请单独选择“包袋”。";
 function UploadPreview({ file }: { file: File }) {
   const [url, setUrl] = useState("");
   useEffect(() => {
@@ -192,7 +194,12 @@ export function AddSheet({ onClose }: { onClose: () => void }) {
                 maxLength={120}
               />
             </Field>
-            <Field label="类别">
+            <Field
+              label="类别"
+              hint={
+                category === "accessory" ? accessoryCategoryHint : undefined
+              }
+            >
               <select
                 value={category}
                 disabled={busy}
@@ -548,7 +555,12 @@ export function ItemEditor({
             />
           </Field>
           <div className="form-grid">
-            <Field label="类别">
+            <Field
+              label="类别"
+              hint={
+                category === "accessory" ? accessoryCategoryHint : undefined
+              }
+            >
               <select
                 value={category}
                 onChange={(e) => {

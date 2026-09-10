@@ -277,6 +277,28 @@ async def test_analysis_creates_reviewable_suggestions_without_replacing_photo(c
     assert suite.store.read()["ai"]["jobs"] == {}
 
 
+async def test_accessory_recognition_saves_type_and_tags_for_user_review(client, suite, monkeypatch):
+    await configure(client)
+    add_photo(suite)
+    inference = AsyncMock(
+        return_value=json.dumps(
+            {
+                "name": "银色圆形手表",
+                "category": "accessory",
+                "colors": ["银色"],
+                "tags": ["手表", "圆形表盘"],
+            }
+        )
+    )
+    monkeypatch.setattr(ai, "completion", inference)
+    response = await client.post("/api/ai/analyze/photo")
+    assert response.status_code == 200
+    saved = suite.store.read()["items"][0]
+    assert saved["category"] == "accessory" and saved["tags"] == ["手表", "圆形表盘"]
+    assert saved["ai_status"] == "review" and not saved["confirmed"]
+    assert saved["price"] == "90.00"
+
+
 @pytest.mark.parametrize("change", ["edit", "image", "delete", "settings"])
 async def test_analysis_does_not_overwrite_changed_state(client, suite, monkeypatch, change):
     await configure(client)
@@ -385,6 +407,112 @@ async def test_recommendation_returns_real_complete_drafts_only(client, suite, m
     assert response.status_code == 200, response.text
     assert response.json()["outfits"][0]["source"] == "ai"
     assert suite.store.read()["outfits"] == suite.store.read()["wear_events"] == []
+
+
+async def test_model_can_recommend_available_accessories_and_bag(client, suite, monkeypatch):
+    await configure(client)
+    add_items(
+        suite,
+        item("top"),
+        item("bottom", "bottom"),
+        item("shoes", "shoes"),
+        item("watch", "accessory", name="手表"),
+        item("bag", "bag"),
+        item("dirty", "accessory", name="围巾", status="laundry"),
+    )
+    inference = AsyncMock(return_value=model_reply(["top", "bottom", "shoes", "watch", "bag"]))
+    monkeypatch.setattr(ai, "completion", inference)
+    response = await client.post("/api/ai/recommend", json={"locked_ids": ["watch"]})
+    assert response.status_code == 200, response.text
+    assert "watch" in response.json()["outfits"][0]["item_ids"]
+    catalog = json.loads(inference.call_args.args[1][1]["content"])["wardrobe"]
+    assert {row["id"] for row in catalog} == {"top", "bottom", "shoes", "watch", "bag"}
+    assert not suite.store.read()["outfits"]
+
+
+@pytest.mark.parametrize(
+    "chosen,locked,accepted",
+    [
+        (["hat1", "hat2"], [], False),
+        (["hat1", "watch", "necklace"], [], False),
+        (["bag1", "bag2"], [], False),
+        (["hat1", "hat2", "watch"], ["hat1", "hat2", "watch"], True),
+        (["hat1", "hat2"], ["hat1"], False),
+        (["watch", "necklace"], [], True),
+    ],
+)
+async def test_model_optional_limits_preserve_explicitly_locked_accessories(
+    client, suite, monkeypatch, chosen, locked, accepted
+):
+    await configure(client)
+    add_items(
+        suite,
+        item("top"),
+        item("bottom", "bottom"),
+        item("shoes", "shoes"),
+        item("hat1", "accessory", name="棒球帽"),
+        item("hat2", "accessory", tags=["渔夫帽"]),
+        item("watch", "accessory", name="手表"),
+        item("necklace", "accessory", name="项链"),
+        item("bag1", "bag"),
+        item("bag2", "bag"),
+    )
+    inference = AsyncMock(return_value=model_reply(["top", "bottom", "shoes", *chosen]))
+    monkeypatch.setattr(ai, "completion", inference)
+    response = await client.post("/api/ai/recommend", json={"locked_ids": locked})
+    assert response.status_code == (200 if accepted else 422), response.text
+    if accepted:
+        assert set(locked).issubset(response.json()["outfits"][0]["item_ids"])
+    assert not suite.store.read()["outfits"]
+
+
+async def test_model_cannot_recommend_excluded_or_newly_unavailable_accessory(client, suite, monkeypatch):
+    await configure(client)
+    add_items(
+        suite,
+        item("top"),
+        item("bottom", "bottom"),
+        item("shoes", "shoes"),
+        item("watch", "accessory", name="手表"),
+    )
+    response_ids = ["top", "bottom", "shoes", "watch"]
+    monkeypatch.setattr(ai, "completion", AsyncMock(return_value=model_reply(response_ids)))
+    assert (await client.post("/api/ai/recommend", json={"excluded_ids": ["watch"]})).status_code == 422
+
+    async def infer(*args, **kwargs):
+        suite.store.update(lambda state: state["items"][-1].update(status="laundry"))
+        return model_reply(response_ids)
+
+    monkeypatch.setattr(ai, "completion", infer)
+    assert (await client.post("/api/ai/recommend", json={})).status_code == 409
+
+
+@pytest.mark.parametrize(
+    "changes,options",
+    [
+        ({"name": "羊毛围巾"}, {"temperature": 30}),
+        ({"seasons": ["winter"]}, {"temperature": 30}),
+        ({"occasions": ["formal"]}, {"occasion": "sport"}),
+    ],
+)
+async def test_model_optional_suitability_matches_rules_but_respects_locks(
+    client, suite, monkeypatch, changes, options
+):
+    await configure(client)
+    add_items(
+        suite,
+        item("top"),
+        item("bottom", "bottom"),
+        item("shoes", "shoes"),
+        item("optional", "accessory", **changes),
+    )
+    inference = AsyncMock(return_value=model_reply(["top", "bottom", "shoes", "optional"]))
+    monkeypatch.setattr(ai, "completion", inference)
+    response = await client.post("/api/ai/recommend", json=options)
+    assert response.status_code == 422, response.text
+    locked = await client.post("/api/ai/recommend", json={**options, "locked_ids": ["optional"]})
+    assert locked.status_code == 200, locked.text
+    assert "optional" in locked.json()["outfits"][0]["item_ids"]
 
 
 @pytest.mark.parametrize(

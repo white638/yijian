@@ -330,6 +330,10 @@ def create_app(data_dir: Path | str | None = None) -> FastAPI:
             for collection in ("outfits", "plans"):
                 for entity in state[collection]:
                     entity["item_ids"] = [value for value in entity["item_ids"] if value != item_id]
+                    if collection == "outfits" and entity.get("layout"):
+                        entity["layout"]["placements"] = [
+                            entry for entry in entity["layout"]["placements"] if entry["item_id"] != item_id
+                        ]
             for trip in state["trips"]:
                 trip["entries"] = [entry for entry in trip["entries"] if entry["item_id"] != item_id]
             preferences = state["settings"]["preferences"]
@@ -420,9 +424,15 @@ def create_app(data_dir: Path | str | None = None) -> FastAPI:
             merged = {key: value for key, value in entity.items() if key not in {"id", "created_at"}}
             merged.update(body)
             try:
+                if (
+                    "item_ids" in body
+                    and "layout" not in body
+                    and set(body["item_ids"]) != set(entity["item_ids"])
+                ):
+                    merged["layout"] = None
                 value = OutfitInput.model_validate(merged)
-            except ValueError:
-                raise HTTPException(422, "请检查穿搭名称与衣物。") from None
+            except (ValueError, TypeError):
+                raise HTTPException(422, "请检查穿搭名称、衣物与画布布局。") from None
             constrained = access == "assistant" or value.source in {"assistant", "ai", "rules"}
             validate_outfit(
                 state, value.item_ids, request={} if constrained else None, require_complete=constrained

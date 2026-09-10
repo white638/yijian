@@ -101,6 +101,20 @@ export interface Item {
   ai_error: string | null;
   wear_count: number;
 }
+export interface OutfitPlacement {
+  item_id: string;
+  x: number;
+  y: number;
+  width: number;
+  rotation: number;
+}
+export interface OutfitLayout {
+  version: 1;
+  mode: "free" | "categories" | "collage" | "ai";
+  template: "balanced" | "grid" | "editorial";
+  background: string;
+  placements: OutfitPlacement[];
+}
 export interface Outfit {
   id: string;
   name: string;
@@ -108,6 +122,7 @@ export interface Outfit {
   notes: string;
   source: "manual" | "rules" | "ai" | "assistant";
   created_at: string;
+  layout?: OutfitLayout | null;
 }
 export interface Suggestion {
   name: string;

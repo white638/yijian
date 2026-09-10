@@ -6,29 +6,46 @@ import {
   type Item,
   type Outfit,
   type Plan,
+  type OutfitLayout,
+  type Suggestion,
   itemName,
   today,
   categories,
 } from "../types";
 import { Button, Field, Sheet, Garment, Collage, ErrorText, Empty } from "./UI";
+import { OutfitWorkspace } from "./OutfitWorkspace";
+import {
+  MAX_OUTFIT_ITEMS,
+  syncLayout,
+  templatePlacements,
+} from "../outfit-layout";
 export function ItemPicker({
   selected,
   onChange,
   items,
+  grouped = false,
+  limit,
 }: {
   selected: string[];
   onChange: (ids: string[]) => void;
   items?: Item[];
+  grouped?: boolean;
+  limit?: number;
 }) {
   const { state } = useApp();
   const [query, setQuery] = useState("");
+  const [category, setCategory] = useState("all");
   const all = items || state.items.filter((i) => i.status !== "archived");
   const shown = useMemo(
     () =>
-      all.filter((i) =>
-        `${itemName(i)} ${i.brand} ${categories[i.category]}`.includes(query),
+      all.filter(
+        (i) =>
+          (!grouped || category === "all" || i.category === category) &&
+          `${itemName(i)} ${i.brand} ${categories[i.category]} ${i.tags.join(" ")}`.includes(
+            query,
+          ),
       ),
-    [all, query],
+    [all, query, grouped, category],
   );
   return (
     <div className="stack tight">
@@ -41,6 +58,32 @@ export function ItemPicker({
           aria-label="搜索可选衣物"
         />
       </label>
+      {grouped && (
+        <div
+          className="studio-picker-categories"
+          role="group"
+          aria-label="筛选衣物类别"
+        >
+          {[["all", "全部"], ...Object.entries(categories)].map(
+            ([value, label]) => (
+              <button
+                key={value}
+                type="button"
+                aria-pressed={category === value}
+                onClick={() => setCategory(value)}
+              >
+                {label}
+                <small>
+                  {
+                    all.filter((i) => value === "all" || i.category === value)
+                      .length
+                  }
+                </small>
+              </button>
+            ),
+          )}
+        </div>
+      )}
       <div className="picker-grid">
         {shown.map((i) => (
           <button
@@ -48,6 +91,9 @@ export function ItemPicker({
             key={i.id}
             className={`pick-card ${selected.includes(i.id) ? "selected" : ""}`}
             aria-pressed={selected.includes(i.id)}
+            disabled={
+              !!limit && selected.length >= limit && !selected.includes(i.id)
+            }
             onClick={() =>
               onChange(
                 selected.includes(i.id)
@@ -66,6 +112,11 @@ export function ItemPicker({
       </div>
       {!shown.length && <p className="muted small">没有匹配的衣物。</p>}
       <small className="muted">已选 {selected.length} 件</small>
+      {!!limit && selected.length >= limit && (
+        <p className="small muted">
+          每套最多选择 {limit} 件，移出一件后可继续添加。
+        </p>
+      )}
     </div>
   );
 }
@@ -78,12 +129,56 @@ export function OutfitEditor({
 }) {
   const { state, refresh, notify, openPlan } = useApp();
   const [ids, setIds] = useState(outfit?.item_ids || []);
+  const [layout, setLayout] = useState<OutfitLayout>(() =>
+    syncLayout(outfit?.layout, outfit?.item_ids || [], state.items),
+  );
+  const [source, setSource] = useState<Outfit["source"]>(
+    outfit?.source || "manual",
+  );
   const [name, setName] = useState(outfit?.name || "");
   const [notes, setNotes] = useState(outfit?.notes || "");
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const [wearDate, setWearDate] = useState(today());
   const requestId = useRef(crypto.randomUUID());
+  function selectItems(next: string[]) {
+    if (busy || next.length > MAX_OUTFIT_ITEMS) return;
+    setIds(next);
+    setLayout((previous) =>
+      previous.mode === "collage"
+        ? {
+            ...previous,
+            placements: templatePlacements(
+              next,
+              state.items,
+              previous.template,
+            ),
+          }
+        : syncLayout(previous, next, state.items),
+    );
+    setSource("manual");
+  }
+  function useSuggestion(suggestion: Suggestion) {
+    if (busy) return;
+    if (suggestion.item_ids.length > MAX_OUTFIT_ITEMS) {
+      setError("这套推荐超过 24 件，请选择其他组合。");
+      return;
+    }
+    setIds(suggestion.item_ids);
+    setName(suggestion.name);
+    setNotes(suggestion.reason);
+    setSource(suggestion.source);
+    setLayout({
+      ...layout,
+      mode: "free",
+      placements: templatePlacements(
+        suggestion.item_ids,
+        state.items,
+        layout.template,
+      ),
+    });
+    setError("");
+  }
   async function action(kind: string) {
     if (busy) return;
     if (kind === "delete" && !confirm("删除这套搭配？衣物会保留在衣柜中。"))
@@ -98,12 +193,8 @@ export function OutfitEditor({
             name: name.trim() || "我的搭配",
             item_ids: ids,
             notes,
-            source:
-              outfit &&
-              ids.length === outfit.item_ids.length &&
-              ids.every((id) => outfit.item_ids.includes(id))
-                ? outfit.source
-                : "manual",
+            source,
+            layout,
           },
           outfit ? "PATCH" : "POST",
         );
@@ -132,26 +223,110 @@ export function OutfitEditor({
     }
   }
   return (
-    <Sheet title={outfit ? "编辑搭配" : "创建一套穿搭"} onClose={onClose} wide>
-      <div className="outfit-editor">
-        <div className="stack">
-          <Collage ids={ids} items={state.items} />
-          <Field label="搭配名称">
-            <input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="例如：周五的轻松通勤"
-              maxLength={120}
-            />
-          </Field>
-          <Field label="搭配笔记">
-            <textarea
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              rows={2}
-              placeholder="记录这套搭配的想法"
-            />
-          </Field>
+    <Sheet
+      title={outfit ? "编辑搭配" : "创建一套穿搭"}
+      onClose={() => {
+        if (!busy) onClose();
+      }}
+      busy={!!busy}
+      wide
+    >
+      <div className="outfit-studio">
+        <fieldset
+          className="studio-fields"
+          disabled={!!busy}
+          aria-label="穿搭编辑区"
+        >
+          <OutfitWorkspace
+            ids={ids}
+            layout={layout}
+            onLayout={(next) => {
+              if (!busy) setLayout(next);
+            }}
+            onRemove={(id) =>
+              selectItems(ids.filter((chosen) => chosen !== id))
+            }
+            onSuggestion={useSuggestion}
+            picker={
+              <ItemPicker
+                selected={ids}
+                onChange={selectItems}
+                grouped
+                limit={MAX_OUTFIT_ITEMS}
+              />
+            }
+          />
+          <div className="studio-save stack">
+            <Field label="搭配名称">
+              <input
+                value={name}
+                onChange={(e) => {
+                  if (!busy) setName(e.target.value);
+                }}
+                placeholder="例如：周五的轻松通勤"
+                maxLength={120}
+              />
+            </Field>
+            <Field label="搭配笔记">
+              <textarea
+                value={notes}
+                onChange={(e) => {
+                  if (!busy) setNotes(e.target.value);
+                }}
+                rows={2}
+                placeholder="记录这套搭配的想法"
+              />
+            </Field>
+            <Button
+              kind="secondary"
+              disabled={!ids.length || !!busy}
+              onClick={() => {
+                onClose();
+                openPlan(ids, name, outfit?.id);
+              }}
+            >
+              <CalendarDays size={16} />
+              安排穿搭日期
+            </Button>
+            <div className="soft-panel stack tight">
+              <Field label="实际穿着日期">
+                <input
+                  type="date"
+                  value={wearDate}
+                  max={today()}
+                  onChange={(e) => {
+                    if (!busy) setWearDate(e.target.value);
+                  }}
+                />
+              </Field>
+              <Button
+                kind="secondary"
+                disabled={!ids.length || !!busy || !wearDate}
+                busy={busy === "wear"}
+                onClick={() => action("wear")}
+              >
+                <Check size={16} />
+                这天穿过了
+              </Button>
+              <small className="muted">保存或安排搭配不会增加穿着次数。</small>
+            </div>
+            {outfit && (
+              <Button
+                kind="danger"
+                disabled={!!busy}
+                onClick={() => action("delete")}
+              >
+                <Trash2 size={16} />
+                删除搭配
+              </Button>
+            )}
+          </div>
+        </fieldset>
+        <div className="studio-savebar">
+          <div>
+            <span className="small muted">已选 {ids.length} 件单品</span>
+            <ErrorText error={error} />
+          </div>
           <Button
             disabled={!ids.length || !!busy}
             busy={busy === "save"}
@@ -160,52 +335,6 @@ export function OutfitEditor({
             <Bookmark size={16} />
             保存穿搭
           </Button>
-          <Button
-            kind="secondary"
-            disabled={!ids.length || !!busy}
-            onClick={() => {
-              onClose();
-              openPlan(ids, name, outfit?.id);
-            }}
-          >
-            <CalendarDays size={16} />
-            安排穿搭日期
-          </Button>
-          <div className="soft-panel stack tight">
-            <Field label="实际穿着日期">
-              <input
-                type="date"
-                value={wearDate}
-                max={today()}
-                onChange={(e) => setWearDate(e.target.value)}
-              />
-            </Field>
-            <Button
-              kind="secondary"
-              disabled={!ids.length || !!busy || !wearDate}
-              busy={busy === "wear"}
-              onClick={() => action("wear")}
-            >
-              <Check size={16} />
-              这天穿过了
-            </Button>
-            <small className="muted">保存或安排搭配不会增加穿着次数。</small>
-          </div>
-          {outfit && (
-            <Button
-              kind="danger"
-              disabled={!!busy}
-              onClick={() => action("delete")}
-            >
-              <Trash2 size={16} />
-              删除搭配
-            </Button>
-          )}
-          <ErrorText error={error} />
-        </div>
-        <div>
-          <h3 className="mb">从你的衣柜里挑选</h3>
-          <ItemPicker selected={ids} onChange={setIds} />
         </div>
       </div>
     </Sheet>
@@ -297,7 +426,7 @@ export function PlanEditor({
           </select>
         </Field>
         {choice ? (
-          <Collage ids={ids} items={state.items} />
+          <Collage ids={ids} items={state.items} expanded />
         ) : (
           <ItemPicker selected={ids} onChange={setIds} />
         )}

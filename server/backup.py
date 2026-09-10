@@ -19,7 +19,7 @@ from PIL import Image
 
 from .auth import require_access
 from .catalog import public_data, timestamp
-from .models import ItemInput, OutfitInput, PlanInput, ReferencePrice, SettingsPatch, TripInput
+from .models import ItemInput, OutfitInput, OutfitLayout, PlanInput, ReferencePrice, SettingsPatch, TripInput
 from .store import initial_state
 
 router = APIRouter(prefix="/api", dependencies=[Depends(require_access)])
@@ -148,6 +148,12 @@ def validate_data(data):
                 {key: value for key, value in entity.items() if key in OutfitInput.model_fields}
             )
         refs(entity["item_ids"])
+        if entity.get("layout") is not None:
+            entity["layout"] = (
+                OutfitLayout.model_validate(entity["layout"])
+                .check_items(entity["item_ids"])
+                .model_dump(mode="json")
+            )
     for entity in result["plans"]:
         PlanInput.model_validate(
             {key: value for key, value in entity.items() if key in PlanInput.model_fields}
