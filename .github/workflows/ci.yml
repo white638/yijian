@@ -78,6 +78,6 @@ jobs:
       - uses: actions/checkout@v4
       - run: docker build -f online/Dockerfile -t yijian-account:test .
       - run: docker run -d --name yijian-test -p 3117:3117 -e BETTER_AUTH_SECRET=ci-only-independent-authentication-secret yijian-account:test
-      - run: curl --retry 15 --retry-connrefused --retry-delay 1 --fail http://127.0.0.1:3117/api/health
+      - run: curl --retry 15 --retry-all-errors --retry-delay 1 --max-time 5 --fail http://127.0.0.1:3117/api/health
       - if: always()
         run: docker logs yijian-test
