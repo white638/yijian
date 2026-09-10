@@ -24,19 +24,47 @@ export function OnlineEntry({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const generation = useRef(0);
+  const cancelLoad = useRef<(() => void) | null>(null);
   async function load() {
     const version = ++generation.current;
+    cancelLoad.current?.();
+    const controller = new AbortController();
+    let rejectCancelled!: (reason: Error) => void;
+    const cancelled = new Promise<never>((_, reject) => {
+      rejectCancelled = reject;
+    });
+    const cancel = (reason = new Error("连接已取消。")) => {
+      window.clearTimeout(deadline);
+      controller.abort();
+      rejectCancelled(reason);
+    };
+    const deadline = window.setTimeout(
+      () => cancel(new Error("连接超时，请检查网络后重新连接。")),
+      15_000,
+    );
+    cancelLoad.current = cancel;
     setLoading(true);
     setError("");
-    try {
-      const settings = await api<AccountConfig>("/account/config");
-      if (version !== generation.current) return;
+    async function readAccount() {
+      const settings = await api<AccountConfig>("/account/config", {
+        signal: controller.signal,
+      });
+      if (version !== generation.current || controller.signal.aborted)
+        return null;
       setConfig(settings);
-      const session = await api<Session | null>("/auth/get-session");
-      if (version === generation.current) setAccount(session?.user || null);
+      return api<Session | null>("/auth/get-session", {
+        signal: controller.signal,
+      });
+    }
+    try {
+      const session = await Promise.race([readAccount(), cancelled]);
+      if (version === generation.current && !controller.signal.aborted)
+        setAccount(session?.user || null);
     } catch (e) {
       if (version === generation.current) setError(failure(e));
     } finally {
+      window.clearTimeout(deadline);
+      if (cancelLoad.current === cancel) cancelLoad.current = null;
       if (version === generation.current) setLoading(false);
     }
   }
@@ -44,18 +72,21 @@ export function OnlineEntry({
     void load();
     const expired = () => {
       generation.current++;
+      cancelLoad.current?.();
       setAccount(null);
       setLoading(false);
     };
     window.addEventListener("yijian:unauthorized", expired);
     return () => {
       generation.current++;
+      cancelLoad.current?.();
       window.removeEventListener("yijian:unauthorized", expired);
     };
   }, []);
   async function signOut() {
     await api("/auth/sign-out", { method: "POST", body: "{}" });
     generation.current++;
+    cancelLoad.current?.();
     setAccount(null);
   }
   if (account) return <>{children(account, signOut)}</>;
@@ -66,16 +97,13 @@ export function OnlineEntry({
       </a>
       {loading ? (
         <p role="status">正在打开你的衣柜…</p>
-      ) : config ? (
-        <>
-          <ErrorText error={error} />
-          <AccountForm config={config} onSuccess={load} />
-        </>
-      ) : (
+      ) : error || !config ? (
         <section className="settings-card stack">
           <ErrorText error={error} />
           <Button onClick={load}>重新连接</Button>
         </section>
+      ) : (
+        <AccountForm config={config} onSuccess={load} />
       )}
       <p className="small muted center">个人衣柜 · 自由导出 · 开放源码</p>
     </main>

@@ -212,7 +212,9 @@ it("expired authentication discards private UI and a late bootstrap response can
   );
   render(<OnlineEntry>{() => <div>private wardrobe</div>}</OnlineEntry>);
   await waitFor(() =>
-    expect(mocks.api).toHaveBeenCalledWith("/auth/get-session"),
+    expect(mocks.api).toHaveBeenCalledWith("/auth/get-session", {
+      signal: expect.any(AbortSignal),
+    }),
   );
   act(() => window.dispatchEvent(new Event("yijian:unauthorized")));
   await act(async () => resolveSession({ user: account }));

@@ -2,7 +2,9 @@
 
 用自己的衣服，搭配今天。
 
-衣间是免费开源的个人衣橱应用，独立实现衣物管理、穿搭规划和 AI 助手接入，采用 MIT 许可证。界面适配手机与桌面。本机版将照片和衣橱保存在自己的电脑；账号版提供独立服务器与 Cloudflare 部署方式，目前处于封闭测试。
+衣间是免费开源的个人衣橱应用，独立实现衣物管理、穿搭规划和 AI 助手接入，采用 MIT 许可证。界面适配手机与桌面。本机版将照片和衣橱保存在自己的电脑；账号版提供独立服务器与 Cloudflare 部署方式，目前开放邀请测试。
+
+[打开衣间云端版](https://yijian-delta.vercel.app/) · [自托管与数据迁移](docs/online.md)
 
 ## 日常使用
 
@@ -86,7 +88,7 @@ npm run build
 
 API 与组件边界见 [架构](docs/architecture.md)，实际检查结果见 [验证记录](docs/validation.md)。
 
-账号基础版使用 Hono / TypeScript，共用 Node SQLite 与 Workers D1 / R2 适配器，已提供邀请注册、独立衣柜、私密照片、手动与规则穿搭、迁移预览和朋友链接分享。在线 AI、本机助手连接和正式公网入口继续按 [项目路线](docs/roadmap.md) 推进。部署与当前容量见 [账号版说明](docs/online.md)，分享流程见 [衣柜分享](docs/sharing.md)。
+账号基础版使用 Hono / TypeScript，共用 Node SQLite 与 Workers D1 / R2 适配器，已提供邀请注册、独立衣柜、私密照片、手动与规则穿搭、迁移预览和朋友链接分享。在线 AI 与本机助手连接继续按 [项目路线](docs/roadmap.md) 推进。部署与当前容量见 [账号版说明](docs/online.md)，分享流程见 [衣柜分享](docs/sharing.md)。
 
 ## 设计与许可
 
