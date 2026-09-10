@@ -17,6 +17,7 @@ import { readWorkspace, commitWorkspace } from "./repository.js";
 import { stripJpegMetadata } from "./jpeg.js";
 import { starterLimits, assertWorkspaceCapacity } from "./limits.js";
 import { blobDeletionStatements, flushBlobDeletes } from "./cleanup.js";
+import { readFormData } from "./forms.js";
 import {
   exportSharingHistory,
   prepareSharingHistoryImport,
@@ -552,7 +553,10 @@ export function mountMigration(app: Hono<Env>) {
       throw new HTTPException(429, {
         message: "已有三个待确认的迁移预览，请先完成导入或等待预览过期。",
       });
-    const form = await c.req.formData(),
+    const form = await readFormData(
+        c.req,
+        "上传表单无法读取，请重新选择备份文件。",
+      ),
       file = form.get("file");
     if (!(file instanceof File) || form.getAll("file").length !== 1)
       throw invalid("请选择一个衣间 ZIP 备份文件。");

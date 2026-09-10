@@ -39,6 +39,7 @@ import { recommend } from "./recommendations.js";
 import { ValidationError } from "./models.js";
 import { starterLimits } from "./limits.js";
 import { blobDeletionStatements, flushBlobDeletes } from "./cleanup.js";
+import { readFormData } from "./forms.js";
 
 export type AppEnv = {
   Variables: { runtime: Runtime; ownerId: string; sourceKey?: string };
@@ -244,7 +245,7 @@ export function createApp(runtime?: Runtime) {
     );
   });
   app.post("/api/items/upload", async (c) => {
-    const form = await c.req.formData();
+    const form = await readFormData(c.req, "上传表单无法读取，请重新选择图片。");
     const files = form.getAll("files");
     if (
       !files.length ||

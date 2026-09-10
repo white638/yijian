@@ -60,7 +60,7 @@ async function fixture() {
         : data === undefined
           ? undefined
           : JSON.stringify(data);
-    if (body && !(body instanceof FormData))
+    if (body && !(body instanceof FormData) && !headers.has("content-type"))
       headers.set("content-type", "application/json");
     return app.request(origin + "/api" + path, { method, headers, body });
   };
@@ -99,6 +99,17 @@ async function fixture() {
   return { ...platform, runtime, call, a, b, add, upload };
 }
 describe("online wardrobe end to end", () => {
+  it("rejects malformed multipart uploads without storing records or photos", async () => {
+    const f = await fixture();
+    const response = await f.call("/items/upload", "POST", "invalid multipart body", f.a.cookie, {
+      "content-type": "multipart/form-data; boundary=expected-boundary",
+    });
+    expect(response.status).toBe(422);
+    expect(await response.json()).toEqual({ detail: "上传表单无法读取，请重新选择图片。" });
+    expect((await readWorkspace(f.runtime, f.a.user.id)).state.items).toEqual([]);
+    expect(await f.db.all("SELECT name FROM assets WHERE owner_id=?", [f.a.user.id])).toEqual([]);
+    expect(await f.db.all("SELECT object_key FROM blob_delete_jobs WHERE owner_id=?", [f.a.user.id])).toEqual([]);
+  });
   it("preserves a committed upload when its database response is lost", async () => {
     const f = await fixture();
     vi.useFakeTimers({ toFake: ["Date"] });

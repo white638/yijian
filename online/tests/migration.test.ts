@@ -212,6 +212,27 @@ function patchCentral(
 }
 
 describe("portable ZIP migration", () => {
+  it("rejects an incomplete multipart body before creating a migration preview", async () => {
+    const put = vi.spyOn(runtime.blobs, "put");
+    const response = await app.request("/api/migration/preview", {
+      method: "POST",
+      headers: {
+        "x-test-owner": "owner-a",
+        "content-type": "multipart/form-data; boundary=broken",
+      },
+      body: '--broken\r\nContent-Disposition: form-data; name="file"; filename="backup.zip"\r\nContent-Type: application/zip\r\n\r\nunfinished',
+    });
+    expect(response.status).toBe(422);
+    expect(await response.json()).toEqual({
+      detail: "上传表单无法读取，请重新选择备份文件。",
+    });
+    expect(put).not.toHaveBeenCalled();
+    expect(await runtime.db.all("SELECT * FROM migration_previews")).toEqual(
+      [],
+    );
+    expect((await readWorkspace(runtime, "owner-a")).state.items).toEqual([]);
+  });
+
   it("preserves imported photos when the database commits but its response is lost", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date(time));
